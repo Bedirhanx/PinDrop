@@ -92,15 +92,19 @@ test("public pages render", async ({ page }) => {
 test("filter chips show what's active and clear all resets the results", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".feed-card").first()).toBeVisible();
+  // Wait until pins from the server have arrived (cached and sample pins show
+  // first), so the numbers below don't change mid-test.
+  await expect(page.locator(".map-status")).toHaveText(/Live community map|Preview/);
   const count = () => page.locator("#pin-results b").textContent().then(Number);
+  // The count always matches the cards on screen.
+  const matches = async () => (await count()) === (await page.locator(".feed-card").count());
+  await expect.poll(matches).toBe(true);
   const all = await count();
-  expect(await page.locator(".feed-card").count()).toBe(all);
 
   await page.locator(".map-filters").getByRole("button", { name: "Events" }).click();
   await expect(page.getByRole("button", { name: "Remove filter: Events" })).toBeVisible();
-  const events = await count();
-  expect(events).toBeLessThan(all);
-  expect(await page.locator(".feed-card").count()).toBe(events);
+  await expect.poll(matches).toBe(true);
+  expect(await count()).toBeLessThan(all);
 
   // A search with no matches explains why and offers a reset.
   await page.getByLabel("Search opportunities in this area").fill("zzzz-no-such-pin");
