@@ -5,3 +5,6 @@ out/
 .DS_Store
 .env*.local
 public/vendor/
+.env
+test-results/
+playwright-report/
