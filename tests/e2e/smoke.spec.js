@@ -79,6 +79,7 @@ test("settings persist after refresh", async ({ page }) => {
 test("public pages render", async ({ page }) => {
   for (const [path, heading] of [
     ["/about", /pin away/],
+    ["/solution", /hard to find/],
     ["/contact", /hear from you/],
     ["/signin", /Welcome back/],
     ["/signup", /Join your neighbors/],

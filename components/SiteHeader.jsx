@@ -9,6 +9,7 @@ import { signOut, useSession } from "@/lib/session";
 const LINKS = [
   { href: "/", label: "Map" },
   { href: "/about", label: "About us" },
+  { href: "/solution", label: "Our solution" },
   { href: "/contact", label: "Contact" },
 ];
 

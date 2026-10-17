@@ -4099,3 +4099,55 @@ small {
     font-size: 16px !important;
   }
 }
+
+/* ---- Our solution ----------------------------------------------------------- */
+
+.solution-intro {
+  padding-bottom: 24px;
+}
+.problems {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.problem-card svg {
+  color: #f4bc6a;
+}
+.solution-steps {
+  grid-template-columns: repeat(4, 1fr);
+}
+.inline-icon {
+  color: var(--accent);
+  vertical-align: -4px;
+}
+.planned-label {
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  vertical-align: middle;
+  border-radius: 6px;
+  margin-left: 6px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.kind-card.planned svg {
+  color: var(--muted);
+}
+.solution-link {
+  color: var(--accent);
+  margin-top: 16px;
+  font-size: 13px;
+  text-decoration: none;
+  display: inline-flex;
+}
+#our-solution h2 {
+  margin-bottom: 14px;
+}
+@media (max-width: 960px) {
+  .solution-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .solution-steps {
+    grid-template-columns: 1fr;
+  }
+}
