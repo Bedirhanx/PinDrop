@@ -109,10 +109,20 @@ test("a signed-out visitor can open the shared link", async ({ browser }) => {
 test("Bob saves the pin and it stays saved after refresh", async ({ browser }) => {
   const bob = await browserFor(browser, people.bob);
   await bob.goto(pinUrl);
-  await bob.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(bob.getByRole("button", { name: "Saved" })).toBeVisible();
+  const pin = bob.locator("article.detail-content");
+  await pin.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(pin.getByRole("button", { name: "Saved" })).toHaveAttribute("aria-pressed", "true");
+  // The button shows "Saved" right away and is disabled until the server confirms.
+  await expect(pin.getByRole("button", { name: "Saved" })).toBeEnabled();
   await bob.reload();
-  await expect(bob.getByRole("button", { name: "Saved" })).toBeVisible();
+  await expect(bob.locator("article.detail-content").getByRole("button", { name: "Saved" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // It also appears under the Saved filter.
+  await bob.goto("/");
+  await bob.locator(".map-filters").getByRole("button", { name: "Saved" }).click();
+  await expect(bob.locator(".feed-card", { hasText: title })).toBeVisible();
   await bob.context().close();
 });
 
