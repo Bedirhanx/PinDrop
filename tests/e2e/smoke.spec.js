@@ -10,7 +10,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  expect(page.errorsSeen, "console errors").toEqual([]);
+  // A page that deliberately answers 404 logs that response; nothing else may.
+  const errors = page.errorsSeen.filter(
+    (text) => !(page.expects404 && /status of 404/.test(text)),
+  );
+  expect(errors, "console errors").toEqual([]);
 });
 
 test("map loads with pins and the feed", async ({ page }) => {
@@ -40,6 +44,7 @@ test("opens a pin, shares its link, and survives back, forward and refresh", asy
 });
 
 test("unknown and malformed pin links show not-found", async ({ page, request }) => {
+  page.expects404 = true;
   expect((await request.get("/p/not-a-real-id")).status()).toBe(404);
   await page.goto("/p/8f6c2a6e-6d9c-4a54-9a4a-0b6a7f4c1d11");
   await expect(page.getByText("This pin isn’t on the map anymore.")).toBeVisible();
