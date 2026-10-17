@@ -30,7 +30,8 @@ const TEAM = [
   { name: "Bedirhan Erdemli", photo: "/team/bedirhan-erdemli.webp", linkedin: "https://www.linkedin.com/in/bedirhan-yusuf-erdemli" },
   { name: "Shafagh Mehrabi", photo: "/team/shafagh-mehrabi.webp", linkedin: "https://www.linkedin.com/in/shafagh-mehrabi" },
   { name: "Yixin Lin", photo: "/team/yixin-lin.webp", linkedin: "https://www.linkedin.com/in/yixin-lin-1680yx" },
-  { name: "Yeowon Jun", photo: "/team/yeowon-jun.webp" },
+  { name: "Yeowon Jun", photo: "/team/yeowon-jun.webp", linkedin: "https://www.linkedin.com/in/yeowon-jun-53a37b443" },
+  { name: "Sammy Elzein", photo: "/team/sammy-elzein.webp", linkedin: "https://www.linkedin.com/in/sammy-elzein-04721839a" },
 ];
 
 const KINDS = [

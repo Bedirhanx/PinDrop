@@ -3854,12 +3854,13 @@ small {
   margin: -16px 0 28px;
 }
 .team {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 18px;
   margin: 0;
   padding: 0;
   list-style: none;
-  display: grid;
+  display: flex;
 }
 .team-card {
   text-align: center;
@@ -3869,6 +3870,7 @@ small {
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  flex: 0 1 190px;
   padding: 26px 18px 22px;
   transition:
     transform 0.25s,
@@ -3910,4 +3912,20 @@ small {
 /* Keep anchor targets clear of the sticky header. */
 .site-section[id] {
   scroll-margin-top: 80px;
+}
+@media (max-width: 480px) {
+  .team {
+    gap: 12px;
+  }
+  .team-card {
+    flex-basis: calc(50% - 6px);
+    padding: 20px 10px 18px;
+  }
+  .team-card img {
+    width: 96px;
+    height: 96px;
+  }
+  .team-card strong {
+    font-size: 14px;
+  }
 }
