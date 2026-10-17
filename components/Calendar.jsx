@@ -23,12 +23,14 @@ function CalendarMonth({ month, start, end, range, min, onChoose }) {
         ? month
         : min;
   const [focused, setFocused] = useState(initialFocus);
+  const [focusedMonth, setFocusedMonth] = useState(month);
   const grid = useRef(null);
 
-  useEffect(() => {
+  // Move keyboard focus into the newly shown month.
+  if (focusedMonth !== month) {
+    setFocusedMonth(month);
     setFocused(initialFocus());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month]);
+  }
 
   function onKeyDown(event, day) {
     const moves = {

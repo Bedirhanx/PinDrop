@@ -46,14 +46,16 @@ export default function NavigationPanel({
   hasLocation,
   onUseCampus,
   onUseMapCenter,
+  locating,
 }) {
   // Only show the steps still ahead of the traveller.
   const travelled = route ? Math.max(0, route.distance - remaining) : 0;
-  let covered = 0;
-  const steps = (route?.steps || []).filter((step) => {
-    covered += step.distance;
-    return covered >= travelled;
-  });
+  const allSteps = route?.steps || [];
+  const ends = allSteps.reduce(
+    (list, step) => [...list, (list.at(-1) || 0) + step.distance],
+    [],
+  );
+  const steps = allSteps.filter((_, index) => ends[index] >= travelled);
   const external = mode === "transit" || mode === "rideshare";
 
   return (
@@ -185,16 +187,18 @@ export default function NavigationPanel({
                 {locationError || error}
               </p>
             )}
-            <button className="primary full" onClick={onStart}>
+            <button className="primary full" onClick={onStart} disabled={locating}>
               <LocateFixed size={17} />
-              {active
+              {locating
+                ? "Finding your location…"
+                : active
                 ? hasLocation
                   ? "Update my location"
                   : "Retry my location"
                 : "Use my location & navigate"}
             </button>
             <p className="form-caption">
-              Street routing uses OpenStreetMap / OSRM. Location is used only
+              Street routing uses free OpenStreetMap routing servers. Location is used only
               when you choose it. Preview routes use the selected starting
               point.
             </p>

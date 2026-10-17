@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { getVersion, setWorkerUrl } from "maplibre-gl";
 import Map, { Layer, Marker, Source } from "react-map-gl/maplibre";
 import { Layers, MapPin, Navigation } from "lucide-react";
 import CategoryIcon from "./CategoryIcon";
@@ -10,20 +11,33 @@ import { CAMPUS, CATEGORY_COLORS, COMMUNITY_CATEGORIES } from "@/lib/constants";
 import { pinColor, pinIconKey } from "@/lib/pins";
 import { useUi } from "@/lib/store";
 
+// MapLibre can't find its worker inside the Next.js bundle; it is copied to
+// public/vendor by scripts/copy-maplibre-worker.mjs.
+setWorkerUrl(`/vendor/maplibre-gl-worker.mjs?v=${getVersion()}`);
+
 const reducedMotion = () =>
   matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Raster tiles. OpenStreetMap's own servers are fine for light use under
+// their tile policy; set NEXT_PUBLIC_MAP_TILE_URL to a commercial or
+// self-hosted provider for heavier traffic.
+const TILE_URL =
+  process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_ATTRIBUTION =
+  process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION ||
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>';
 
 function mapStyle(dark) {
   return {
     version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    // Self-hosted glyphs for cluster numbers (public/fonts).
+    glyphs: `${window.location.origin}/fonts/{fontstack}/{range}.pbf`,
     sources: {
       tiles: {
         type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tiles: [TILE_URL],
         tileSize: 256,
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+        attribution: TILE_ATTRIBUTION,
         maxzoom: 19,
       },
     },
@@ -48,49 +62,54 @@ function mapStyle(dark) {
   };
 }
 
-// Draws a coloured circle with the category symbol and registers it on the map.
-const pendingImages = new WeakMap();
-function addPinImage(map, key) {
-  if (!/^pd-[a-z]+-[a-f0-9]{6}$/.test(key) || map.hasImage(key)) return;
-  let pending = pendingImages.get(map);
-  if (!pending) {
-    pending = new Set();
-    pendingImages.set(map, pending);
-  }
-  if (pending.has(key)) return;
-  pending.add(key);
-
-  // Rendered in a microtask so it never runs inside a React render or effect.
-  queueMicrotask(() => {
-    const [, group, color] = key.split("-");
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    flushSync(() =>
-      root.render(
-        <svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
-          <circle cx="36" cy="36" r="30" fill={"#" + color} stroke="#f3efff" strokeWidth="3" />
-          <CategoryIcon group={group} x={21} y={21} size={30} color="#172136" strokeWidth={2.2} />
-        </svg>,
+// Draws a coloured circle with the category symbol as an image. Cached by
+// key ("pd-<group>-<hex colour>"), so each symbol is drawn once per page.
+// (globalThis.Map: "Map" here is the react-map-gl component.)
+const pinImages = new globalThis.Map();
+function pinImage(key) {
+  if (!pinImages.has(key)) {
+    pinImages.set(
+      key,
+      // Wait a microtask so React rendering never runs inside a React effect.
+      Promise.resolve().then(
+        () =>
+          new Promise((resolve, reject) => {
+            const [, group, color] = key.split("-");
+            const container = document.createElement("div");
+            const root = createRoot(container);
+            flushSync(() =>
+              root.render(
+                <svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
+                  <circle cx="36" cy="36" r="30" fill={"#" + color} stroke="#f3efff" strokeWidth="3" />
+                  <CategoryIcon group={group} x={21} y={21} size={30} color="#172136" strokeWidth={2.2} />
+                </svg>,
+              ),
+            );
+            const markup = container.innerHTML;
+            root.unmount();
+            const image = new Image(72, 72);
+            image.onload = () => resolve(image);
+            image.onerror = () => {
+              pinImages.delete(key);
+              reject(new Error("Pin symbol failed to load"));
+            };
+            image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
+          }),
       ),
     );
-    const markup = container.innerHTML;
-    root.unmount();
-    loadPinImage(map, key, markup, pending);
-  });
+  }
+  return pinImages.get(key);
 }
 
-function loadPinImage(map, key, markup, pending) {
-  const image = new Image(72, 72);
-  image.onload = () => {
-    pending.delete(key);
+// MapLibre asks for pin symbols as layers need them and waits for this.
+function resolvePinImage(map) {
+  return async (key) => {
+    if (!/^pd-[a-z]+-[a-f0-9]{6}$/.test(key)) return;
     try {
-      if (map.getStyle() && !map.hasImage(key)) {
-        map.addImage(key, image, { pixelRatio: 2 });
-      }
+      const image = await pinImage(key);
+      if (map.getStyle() && !map.hasImage(key)) map.addImage(key, image, { pixelRatio: 2 });
     } catch {}
   };
-  image.onerror = () => pending.delete(key);
-  image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
 }
 
 function MapLegend() {
@@ -153,8 +172,18 @@ export default function MapView({
   const setUi = useUi((s) => s.set);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [tilesFailing, setTilesFailing] = useState(false);
+  const tileErrors = useRef(0);
   const firstHome = useRef(true);
   const style = useMemo(() => mapStyle(theme === "dark"), [theme]);
+
+  // react-map-gl attaches the map after its own setup, so register the pin
+  // symbol resolver from a callback ref, before the pin layers ask for them.
+  const attachMap = useCallback((instance) => {
+    mapRef.current = instance;
+    const map = instance?.getMap();
+    map?.setMissingStyleImageResolver(resolvePinImage(map));
+  }, []);
 
   // Fly to the selected pin.
   useEffect(() => {
@@ -230,18 +259,6 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, loaded]);
 
-  // Make sure every visible category has its map symbol.
-  useEffect(() => {
-    if (!loaded || !mapRef.current) return;
-    const map = mapRef.current.getMap();
-    const onMissing = (event) => addPinImage(map, event.id);
-    map.on("styleimagemissing", onMissing);
-    for (const pin of pins) addPinImage(map, pinIconKey(pin));
-    return () => {
-      map.off("styleimagemissing", onMissing);
-    };
-  }, [loaded, pins, style]);
-
   // Jump to a neighborhood chosen from the area picker.
   useEffect(() => {
     if (!loaded || !areaFocus) return;
@@ -270,19 +287,24 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomRequest?.key, loaded]);
 
-  const features = {
-    type: "FeatureCollection",
-    features: pins.map((pin) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [pin.lng, pin.lat] },
-      properties: {
-        id: pin.id,
-        color: pinColor(pin),
-        icon: pinIconKey(pin),
-        selected: pin.id === selected?.id,
-      },
-    })),
-  };
+  // Rebuilt only when the pins or selection change, not on every render.
+  const selectedId = selected?.id;
+  const features = useMemo(
+    () => ({
+      type: "FeatureCollection",
+      features: pins.map((pin) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [pin.lng, pin.lat] },
+        properties: {
+          id: pin.id,
+          color: pinColor(pin),
+          icon: pinIconKey(pin),
+          selected: pin.id === selectedId,
+        },
+      })),
+    }),
+    [pins, selectedId],
+  );
 
   async function onClick(event) {
     if (draft) {
@@ -308,13 +330,28 @@ export default function MapView({
   return (
     <div className="map-stage">
       <Map
-        ref={mapRef}
+        ref={attachMap}
         initialViewState={{ longitude: CAMPUS.lng, latitude: CAMPUS.lat, zoom: 16 }}
         mapStyle={style}
         style={{ width: "100%", height: "100%" }}
         interactiveLayerIds={["pin-icons", "pin-points", "clusters"]}
         onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
+        onError={(event) => {
+          // Tile failures are reported here too; a few are normal when panning
+          // quickly, many in a row mean the tile server is unreachable.
+          if (event.error?.status || /tile|Failed to fetch|NetworkError/i.test(event.error?.message || "")) {
+            tileErrors.current += 1;
+            if (tileErrors.current >= 6) setTilesFailing(true);
+            return;
+          }
+          if (!loaded) setFailed(true);
+        }}
+        onData={(event) => {
+          if (event.dataType === "source" && event.tile && tileErrors.current) {
+            tileErrors.current = 0;
+            setTilesFailing(false);
+          }
+        }}
         onMoveStart={(event) => {
           if (event.originalEvent) onManualMove();
         }}
@@ -361,7 +398,7 @@ export default function MapView({
             layout={{
               "text-field": ["get", "point_count_abbreviated"],
               "text-size": 12,
-              "text-font": ["Open Sans Regular"],
+              "text-font": ["Noto Sans Bold"],
             }}
             paint={{ "text-color": "#fff" }}
           />
@@ -449,8 +486,13 @@ export default function MapView({
       </Map>
       <MapLegend />
       {failed && !loaded && (
-        <div className="map-message">
-          The map could not load. Your saved pins are available in the list.
+        <div className="map-message" role="alert">
+          The map could not load. Pins are still available in the list.
+        </div>
+      )}
+      {tilesFailing && loaded && (
+        <div className="map-message tiles" role="status">
+          Street map tiles aren’t loading (you may be offline). Pins are still shown.
         </div>
       )}
       {!loaded && (
