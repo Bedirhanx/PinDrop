@@ -89,6 +89,38 @@ export default function About() {
         </div>
       </section>
 
+      <section className="site-section split" id="our-solution">
+        <Reveal>
+          <p className="eyebrow">OUR SOLUTION</p>
+          <h2>Help is all around campus. It’s just hard to find.</h2>
+          <p className="hero-lead">
+            Requests and offers are scattered across group chats and flyers, asking strangers
+            feels awkward, and good offers go unseen. PinDrop puts what people need and offer on
+            one shared map, so neighbors can find each other, coordinate privately and get it done.
+          </p>
+          <Link className="text-button solution-link" href="/solution">
+            Read our solution <ArrowRight size={15} />
+          </Link>
+        </Reveal>
+        <Reveal delay={120} className="callout">
+          <h3>What PinDrop changes</h3>
+          <ul className="checklist">
+            <li>
+              <MapPin size={18} /> One map instead of dozens of chats
+            </li>
+            <li>
+              <HandHeart size={18} /> One tap to offer help, one helper per request
+            </li>
+            <li>
+              <MessageCircle size={18} /> Private messages, no phone numbers shared
+            </li>
+            <li>
+              <ShieldCheck size={18} /> Approximate locations for homes and care
+            </li>
+          </ul>
+        </Reveal>
+      </section>
+
       <section className="site-section" id="how-it-works">
         <Reveal as="h2">How it works</Reveal>
         <ol className="steps">

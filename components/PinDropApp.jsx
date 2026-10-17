@@ -679,6 +679,7 @@ export default function PinDropApp() {
         </div>
         <nav className="panel-footer" aria-label="About PinDrop">
           <Link href="/about">About us</Link>
+          <Link href="/solution">Our solution</Link>
           <Link href="/contact">Contact</Link>
           <Link href="/about#safety">Safety &amp; privacy</Link>
           {userId && (
@@ -780,6 +781,7 @@ export default function PinDropApp() {
         </form>
         <nav className="topbar-links" aria-label="Site">
           <Link href="/about">About us</Link>
+          <Link href="/solution">Our solution</Link>
           <Link href="/contact">Contact</Link>
         </nav>
         <div className="topbar-right">

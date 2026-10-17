@@ -79,6 +79,7 @@ test("settings persist after refresh", async ({ page }) => {
 test("public pages render", async ({ page }) => {
   for (const [path, heading] of [
     ["/about", /pin away/],
+    ["/solution", /hard to find/],
     ["/contact", /hear from you/],
     ["/signin", /Welcome back/],
     ["/signup", /Join your neighbors/],
@@ -91,15 +92,19 @@ test("public pages render", async ({ page }) => {
 test("filter chips show what's active and clear all resets the results", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".feed-card").first()).toBeVisible();
+  // Wait until pins from the server have arrived (cached and sample pins show
+  // first), so the numbers below don't change mid-test.
+  await expect(page.locator(".map-status")).toHaveText(/Live community map|Preview/);
   const count = () => page.locator("#pin-results b").textContent().then(Number);
+  // The count always matches the cards on screen.
+  const matches = async () => (await count()) === (await page.locator(".feed-card").count());
+  await expect.poll(matches).toBe(true);
   const all = await count();
-  expect(await page.locator(".feed-card").count()).toBe(all);
 
   await page.locator(".map-filters").getByRole("button", { name: "Events" }).click();
   await expect(page.getByRole("button", { name: "Remove filter: Events" })).toBeVisible();
-  const events = await count();
-  expect(events).toBeLessThan(all);
-  expect(await page.locator(".feed-card").count()).toBe(events);
+  await expect.poll(matches).toBe(true);
+  expect(await count()).toBeLessThan(all);
 
   // A search with no matches explains why and offers a reset.
   await page.getByLabel("Search opportunities in this area").fill("zzzz-no-such-pin");
@@ -159,4 +164,24 @@ test("phone forms don't trigger iPhone zoom and the pages scroll", async ({ page
     await page.mouse.wheel(0, 400);
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   }
+});
+
+test("the question box offers the helper when it's set up, otherwise Contact", async ({ page }) => {
+  await page.goto("/solution");
+  const box = page.locator(".ask-helper");
+  await box.scrollIntoViewIfNeeded();
+  const available = await page.request.get("/api/chat").then((r) => r.json()).then((d) => d.available);
+  if (!available) {
+    await expect(box.getByRole("link", { name: "Contact us" })).toHaveAttribute("href", "/contact");
+  }
+
+  // With the helper switched on, the button opens the chat panel.
+  await page.route("**/api/chat", (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: { available: true } }) : route.continue(),
+  );
+  await page.reload();
+  await page.locator(".ask-helper").scrollIntoViewIfNeeded();
+  await page.locator(".ask-helper").getByRole("button", { name: "Ask the helper" }).click();
+  await expect(page.getByRole("dialog", { name: "PinDrop helper" })).toBeVisible();
+  await expect(page.locator("#chat-input")).toBeFocused();
 });

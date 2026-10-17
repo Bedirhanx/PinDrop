@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, MessageCircleQuestion, Send, X } from "lucide-react";
 
+export const OPEN_EVENT = "pindrop:open-helper";
+
 const GREETING =
   "Hi! I can explain how PinDrop works or help you write a clear pin. What do you need?";
 
@@ -34,6 +36,13 @@ export default function ChatWidget({ className = "" }) {
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [messages]);
+
+  // Other parts of the page (e.g. "Ask the helper" buttons) can open it.
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener(OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_EVENT, onOpen);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
