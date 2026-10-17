@@ -1,0 +1,24 @@
+{
+  "name": "pindrop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PinDrop: a neighborhood map for small acts of help.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "idb-keyval": "^6.3.0",
+    "lucide-react": "^1.59.0",
+    "maplibre-gl": "^6.14.0",
+    "next": "^16.4.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-map-gl": "^8.1.3",
+    "zustand": "^5.0.15"
+  }
+}
