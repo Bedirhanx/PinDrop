@@ -87,3 +87,76 @@ test("public pages render", async ({ page }) => {
     await expect(page.locator("h1").first()).toContainText(heading);
   }
 });
+
+test("filter chips show what's active and clear all resets the results", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".feed-card").first()).toBeVisible();
+  const count = () => page.locator("#pin-results b").textContent().then(Number);
+  const all = await count();
+  expect(await page.locator(".feed-card").count()).toBe(all);
+
+  await page.locator(".map-filters").getByRole("button", { name: "Events" }).click();
+  await expect(page.getByRole("button", { name: "Remove filter: Events" })).toBeVisible();
+  const events = await count();
+  expect(events).toBeLessThan(all);
+  expect(await page.locator(".feed-card").count()).toBe(events);
+
+  // A search with no matches explains why and offers a reset.
+  await page.getByLabel("Search opportunities in this area").fill("zzzz-no-such-pin");
+  await expect(page.getByText("No pins match your filters.")).toBeVisible();
+  await expect(page.locator("#pin-results b")).toHaveText("0");
+  await page.locator(".empty").getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByLabel("Search opportunities in this area")).toHaveValue("");
+  await expect(page.locator(".active-filters")).toHaveCount(0);
+  expect(await count()).toBe(all);
+
+  // Removing a single chip only clears that filter.
+  await page.locator(".map-filters").getByRole("button", { name: "Events" }).click();
+  await page.getByLabel("Search opportunities in this area").fill("garden");
+  await page.getByRole("button", { name: /Remove filter: “garden”/ }).click();
+  await expect(page.getByLabel("Search opportunities in this area")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Remove filter: Events" })).toBeVisible();
+  await page.locator(".active-filters").getByRole("button", { name: "Clear all" }).click();
+  await expect(page.locator(".active-filters")).toHaveCount(0);
+});
+
+test("feed cards show type, distance and sample label, and clamp descriptions", async ({ page }) => {
+  await page.goto("/");
+  const card = page.locator(".feed-card").first();
+  await expect(card.locator(".type-chip")).toBeVisible();
+  await expect(card.locator(".card-distance")).toHaveText(/\d+(\.\d)? (m|km)/);
+  await expect(card.locator(".sample-label")).toBeVisible();
+  const clamp = await card.locator("p").evaluate((el) => getComputedStyle(el).webkitLineClamp);
+  expect(clamp).toBe("2");
+  // The detail view shows the full description.
+  await card.click();
+  const full = await page.locator(".detail-description").evaluate((el) => getComputedStyle(el).webkitLineClamp);
+  expect(full).toBe("none");
+});
+
+test("reduced motion turns animations off and shows content immediately", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const card = page.locator(".feed-card").first();
+  await expect(card).toBeVisible();
+  expect(await card.evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
+  await page.goto("/about");
+  // Below-the-fold sections are fully visible without scrolling them in.
+  const step = page.locator(".steps li").first();
+  expect(await step.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+});
+
+test("phone forms don't trigger iPhone zoom and the pages scroll", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "Phone-only behaviour");
+  for (const path of ["/signin", "/signup", "/contact"]) {
+    await page.goto(path);
+    const sizes = await page
+      .locator("input:not([type=checkbox]), textarea, select")
+      .evaluateAll((els) => els.map((el) => parseFloat(getComputedStyle(el).fontSize)));
+    expect(sizes.length).toBeGreaterThan(0);
+    // iOS Safari zooms the page when a field under 16px gets focus.
+    expect(Math.min(...sizes), `${path} field font size`).toBeGreaterThanOrEqual(16);
+    await page.mouse.wheel(0, 400);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  }
+});

@@ -71,7 +71,8 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
 
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
-    heading.current?.closest(".dialog-card")?.scrollTo({ top: 0, behavior: "smooth" });
+    const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    heading.current?.closest(".dialog-card")?.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" });
   }, [step]);
 
   const setField = (name, value) => {

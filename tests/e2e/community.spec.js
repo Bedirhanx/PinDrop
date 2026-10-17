@@ -9,6 +9,9 @@ const anonKey =
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 test.skip(!url || !anonKey || !serviceKey, "Needs Supabase keys in .env.local");
+// These tests create and delete real accounts and pins. Run them only against
+// a test project: E2E_ALLOW_WRITES=1 npx playwright test
+test.skip(!process.env.E2E_ALLOW_WRITES, "Writes data; set E2E_ALLOW_WRITES=1 with a test Supabase project");
 test.describe.configure({ mode: "serial" });
 
 const admin = url && serviceKey ? createClient(url, serviceKey, { auth: { persistSession: false } }) : null;
@@ -182,7 +185,7 @@ test("Bob reports and blocks; Alice deletes her pin", async ({ browser }) => {
   await bob.getByRole("button", { name: "Report this pin" }).click();
   await bob.getByLabel("Report reason").fill("E2E test report");
   await bob.getByRole("button", { name: "Submit report" }).click();
-  await expect(bob.getByText(/Report sent/)).toBeVisible();
+  await expect(bob.locator(".toast")).toContainText("Report sent");
   await bob.getByRole("button", { name: "Report this pin" }).click();
   await bob.getByLabel("Report reason").fill("Again");
   await bob.getByRole("button", { name: "Submit report" }).click();
@@ -191,7 +194,7 @@ test("Bob reports and blocks; Alice deletes her pin", async ({ browser }) => {
 
   await bob.getByRole("button", { name: "Block E2E alice" }).click();
   await bob.getByRole("button", { name: "Block", exact: true }).click();
-  await expect(bob.getByText(/blocked on all your devices/)).toBeVisible();
+  await expect(bob.locator(".toast")).toContainText("blocked on all your devices");
   await bob.goto("/settings");
   await expect(bob.getByText("E2E alice")).toBeVisible();
   await bob.getByRole("button", { name: "Unblock" }).click();

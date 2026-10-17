@@ -5,8 +5,9 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { getVersion, setWorkerUrl } from "maplibre-gl";
 import Map, { Layer, Marker, Source } from "react-map-gl/maplibre";
-import { Layers, MapPin, Navigation } from "lucide-react";
+import { Layers, List, MapPin, Navigation, RefreshCw } from "lucide-react";
 import CategoryIcon from "./CategoryIcon";
+import ErrorBoundary from "./ErrorBoundary";
 import { CAMPUS, CATEGORY_COLORS, COMMUNITY_CATEGORIES } from "@/lib/constants";
 import { pinColor, pinIconKey } from "@/lib/pins";
 import { useUi } from "@/lib/store";
@@ -151,6 +152,11 @@ function MapLegend() {
   );
 }
 
+function currentView() {
+  const { center, zoom } = useUi.getState();
+  return { longitude: center.lng, latitude: center.lat, zoom };
+}
+
 export default function MapView({
   pins,
   selected,
@@ -166,16 +172,46 @@ export default function MapView({
   areaFocus,
   zoomRequest,
   onManualMove,
+  onBrowseList,
+  onRetry,
+  onStatusChange,
 }) {
   const mapRef = useRef(null);
   const theme = useUi((s) => s.theme);
   const setUi = useUi((s) => s.set);
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // One status, so the loading indicator and the error never show together.
+  // The parent remounts this component to retry (see PinDropApp).
+  const [status, setStatus] = useState("loading"); // loading | ready | failed
+  // "webgl" when the map couldn't start on this device; "load" otherwise.
+  const [failure, setFailure] = useState(null);
+  const loaded = status === "ready";
+  const fail = (reason) => {
+    setFailure(reason);
+    setStatus("failed");
+  };
   const [tilesFailing, setTilesFailing] = useState(false);
   const tileErrors = useRef(0);
   const firstHome = useRef(true);
   const style = useMemo(() => mapStyle(theme === "dark"), [theme]);
+
+  // Each attempt starts where the person last looked, so a retry keeps their
+  // place (filters and search live in the store and are untouched).
+  const [initialView] = useState(currentView);
+
+  useEffect(() => {
+    onStatusChange?.(status, failure);
+  }, [status, failure, onStatusChange]);
+
+  // A map that never finishes loading (stalled worker, blocked network)
+  // counts as failed so the person can retry or use the list.
+  useEffect(() => {
+    if (status !== "loading") return;
+    const timer = setTimeout(() => {
+      setFailure("load");
+      setStatus((current) => (current === "loading" ? "failed" : current));
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   // react-map-gl attaches the map after its own setup, so register the pin
   // symbol resolver from a callback ref, before the pin layers ask for them.
@@ -209,7 +245,7 @@ export default function MapView({
       center: [fix.lng, fix.lat],
       zoom: Math.max(mapRef.current.getZoom(), 16),
       bearing: (headingUp && heading) || 0,
-      duration: 700,
+      duration: reducedMotion() ? 0 : 700,
     });
   }, [fix, follow, headingUp, heading, loaded]);
 
@@ -224,7 +260,7 @@ export default function MapView({
       zoom: 16,
       bearing: 0,
       padding: { left: 0, right: 0, top: 0, bottom: 0 },
-      duration: 700,
+      duration: reducedMotion() ? 0 : 700,
     });
   }, [homeKey]);
 
@@ -320,7 +356,7 @@ export default function MapView({
       mapRef.current?.easeTo({
         center: feature.geometry.coordinates,
         zoom,
-        duration: 450,
+        duration: reducedMotion() ? 0 : 450,
       });
     } else {
       onSelect(String(feature.properties?.id));
@@ -329,13 +365,15 @@ export default function MapView({
 
   return (
     <div className="map-stage">
+      {/* WebGL being unavailable makes MapLibre throw while starting up. */}
+      <ErrorBoundary fallback={null} onError={() => fail("webgl")}>
       <Map
         ref={attachMap}
-        initialViewState={{ longitude: CAMPUS.lng, latitude: CAMPUS.lat, zoom: 16 }}
+        initialViewState={initialView}
         mapStyle={style}
         style={{ width: "100%", height: "100%" }}
         interactiveLayerIds={["pin-icons", "pin-points", "clusters"]}
-        onLoad={() => setLoaded(true)}
+        onLoad={() => setStatus("ready")}
         onError={(event) => {
           // Tile failures are reported here too; a few are normal when panning
           // quickly, many in a row mean the tile server is unreachable.
@@ -344,7 +382,7 @@ export default function MapView({
             if (tileErrors.current >= 6) setTilesFailing(true);
             return;
           }
-          if (!loaded) setFailed(true);
+          if (!loaded) fail(/webgl/i.test(event.error?.message || "") ? "webgl" : "load");
         }}
         onData={(event) => {
           if (event.dataType === "source" && event.tile && tileErrors.current) {
@@ -484,10 +522,20 @@ export default function MapView({
           </Marker>
         )}
       </Map>
+      </ErrorBoundary>
       <MapLegend />
-      {failed && !loaded && (
-        <div className="map-message" role="alert">
-          The map could not load. Pins are still available in the list.
+      {status === "failed" && (
+        <div className="map-message map-failed" role="alert">
+          <strong>The map couldn’t load.</strong>
+          <span>Search, filters and pin details still work from the list.</span>
+          <div className="map-message-actions">
+            <button className="primary" onClick={onRetry}>
+              <RefreshCw size={15} /> Retry
+            </button>
+            <button className="secondary" onClick={onBrowseList}>
+              <List size={15} /> Browse list
+            </button>
+          </div>
         </div>
       )}
       {tilesFailing && loaded && (
@@ -495,8 +543,8 @@ export default function MapView({
           Street map tiles aren’t loading (you may be offline). Pins are still shown.
         </div>
       )}
-      {!loaded && (
-        <div className="map-loading">
+      {status === "loading" && (
+        <div className="map-loading" role="status">
           <span className="pulse-dot" />
           Loading your neighborhood…
         </div>
