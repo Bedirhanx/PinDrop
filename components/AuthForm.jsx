@@ -90,8 +90,10 @@ export default function AuthForm({ mode }) {
     if (failure) {
       setState("idle");
       setError(
-        failure.status === 429
-          ? "Too many emails sent. Wait a minute, then try again."
+        failure.code === "over_email_send_rate_limit"
+          ? "PinDrop has reached its email limit for now, so no link was sent. Please try again in an hour."
+          : failure.status === 429
+            ? "Too many attempts. Wait a minute, then try again."
           : /signups not allowed|user not found/i.test(failure.message)
             ? "No account uses that email yet. Sign up instead."
             : friendlyError(failure, "Couldn’t send the email. Please try again."),
