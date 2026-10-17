@@ -14,6 +14,7 @@ export default function SiteFooter() {
           <h2>Explore</h2>
           <Link href="/">Community map</Link>
           <Link href="/about">About us</Link>
+          <Link href="/about#team">Our team</Link>
           <Link href="/about#how-it-works">How it works</Link>
         </div>
         <div>
