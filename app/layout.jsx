@@ -25,6 +25,9 @@ export const viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Shrink the layout when the on-screen keyboard opens (Android), so dialogs
+  // and inputs stay above it.
+  interactiveWidget: "resizes-content",
   themeColor: "#10182b",
 };
 

@@ -348,9 +348,15 @@ export default function PinDetail({ pin, userId, center, onClose, onNavigate, on
               className={isSaved ? "active" : ""}
               aria-pressed={isSaved}
               disabled={busy === "save"}
-              onClick={() => run("save", () => usePins.getState().toggle("save", pin.id))}
+              onClick={() =>
+                run("save", async () => {
+                  const saved = await usePins.getState().toggle("save", pin.id);
+                  notify(saved ? "Saved. Find it under the Saved filter." : "Removed from your saved pins.");
+                })
+              }
             >
-              <Bookmark size={17} /> {isSaved ? "Saved" : "Save"}
+              <Bookmark size={17} />{" "}
+              {busy === "save" ? (isSaved ? "Removing…" : "Saving…") : isSaved ? "Saved" : "Save"}
             </button>
             {!isAuthor && (
               <button
@@ -358,26 +364,38 @@ export default function PinDetail({ pin, userId, center, onClose, onNavigate, on
                 aria-pressed={isConfirmed}
                 disabled={busy === "confirm"}
                 title="Confirm this pin is still accurate"
-                onClick={() => run("confirm", () => usePins.getState().toggle("confirm", pin.id))}
+                onClick={() =>
+                  run("confirm", async () => {
+                    const confirmed = await usePins.getState().toggle("confirm", pin.id);
+                    notify(confirmed ? "Thanks for confirming this pin." : "Confirmation removed.");
+                  })
+                }
               >
-                <Check size={17} /> Still accurate · {pin.confirmations}
+                <Check size={17} /> {busy === "confirm" ? "Updating…" : "Still accurate"} · {pin.confirmations}
               </button>
             )}
           </div>
         )}
         <button
           className="text-button"
+          disabled={busy === "share"}
           onClick={async () => {
             const link = new URL("/p/" + pin.id, window.location.origin).href;
+            setBusy("share");
             try {
               if (navigator.share && matchMedia("(pointer: coarse)").matches) {
                 await navigator.share({ title: pin.title, url: link });
                 return;
               }
+              if (!navigator.clipboard) throw new Error("Clipboard unavailable");
               await navigator.clipboard.writeText(link);
               notify("Link copied. Anyone with the link can open this pin.");
             } catch (error) {
-              if (error?.name !== "AbortError") notify("Copy this page’s address to share the pin.", "info");
+              if (error?.name !== "AbortError") {
+                notify(`Couldn’t copy the link. Copy it from the address bar instead: ${link}`, "error");
+              }
+            } finally {
+              setBusy("");
             }
           }}
         >

@@ -17,6 +17,7 @@ import {
   HandHeart,
   House,
   Leaf,
+  List,
   LoaderCircle,
   LocateFixed,
   MapPin,
@@ -54,7 +55,7 @@ import {
   rankScore,
 } from "@/lib/pins";
 import { sampleById, samplesInArea } from "@/lib/samples";
-import { usePins, useUi } from "@/lib/store";
+import { saveRecovery, usePins, useUi } from "@/lib/store";
 
 const FILTERS = [
   { id: "all", label: "All pins", icon: MapPin },
@@ -170,6 +171,27 @@ export default function PinDropApp() {
   const [areaFocus, setAreaFocus] = useState(null);
   // Load failure for the pin in the URL, kept with its id so it resets on
   // navigation.
+  // Retrying the map remounts it; its status is mirrored here so the list can
+  // offer Retry when the map itself is covered (full sheet on phones).
+  const [mapAttempt, setMapAttempt] = useState(0);
+  const [mapStatus, setMapStatus] = useState("loading");
+  const [mapFailure, setMapFailure] = useState(null);
+  const onMapStatus = useCallback((status, failure) => {
+    setMapStatus(status);
+    setMapFailure(failure);
+  }, []);
+  // A device that can't start WebGL can be retried in place. Other failures
+  // (map worker, stalled load) leave MapLibre's shared workers broken for
+  // this page, so reload, keeping filters, search and the map position.
+  const retryMap = useCallback(() => {
+    if (mapFailure !== "webgl") {
+      saveRecovery();
+      window.location.reload();
+      return;
+    }
+    setMapStatus("loading");
+    setMapAttempt((count) => count + 1);
+  }, [mapFailure]);
   const [pinFailure, setPinFailure] = useState({ id: null, message: "" });
   const [signInOpen, setSignInOpen] = useState(false);
 
@@ -316,6 +338,58 @@ export default function PinDropApp() {
         : 0,
     [data.pins, userId],
   );
+
+  // Filters and search currently narrowing the results, as removable chips.
+  const activeFilters = [];
+  if (ui.filter !== "all") {
+    activeFilters.push({
+      id: "filter",
+      label: FILTERS.find((f) => f.id === ui.filter)?.label || ui.filter,
+      clear: () => setUi({ filter: "all" }),
+    });
+  }
+  if (ui.categoryGroup !== "all") {
+    activeFilters.push({
+      id: "category",
+      label: groupsForType("all").find((g) => g.id === ui.categoryGroup)?.label || ui.categoryGroup,
+      clear: () => setUi({ categoryGroup: "all" }),
+    });
+  }
+  if (ui.search.trim()) {
+    activeFilters.push({
+      id: "search",
+      label: `“${ui.search.trim()}”`,
+      clear: () => setUi({ search: "" }),
+    });
+  }
+  if (ui.nearby) {
+    activeFilters.push({
+      id: "nearby",
+      label: "Within 1.5 km",
+      clear: () => setPreference({ nearby: false }),
+    });
+  }
+
+  function clearFilters() {
+    setUi({ filter: "all", categoryGroup: "all", search: "" });
+    if (ui.nearby) setPreference({ nearby: false });
+    focusResults();
+  }
+
+  // Moves keyboard focus to the result count once the list is on screen.
+  const [resultsFocus, setResultsFocus] = useState(0);
+  const focusResults = () => setResultsFocus((count) => count + 1);
+  useEffect(() => {
+    if (resultsFocus && !pinId) document.getElementById("pin-results")?.focus();
+  }, [resultsFocus, pinId]);
+
+  // "Browse list" when the map fails: show the full list, keep filters.
+  function browseList() {
+    stopNavigation();
+    if (window.location.pathname !== "/") navigate("/");
+    setUi({ sheet: "full" });
+    focusResults();
+  }
 
   const selectPin = useCallback(
     (id) => {
@@ -538,9 +612,9 @@ export default function PinDropApp() {
             </select>
           </label>
           <div className="feed-summary">
-            <span>
-              <b>{visiblePins.length}</b>{" "}
-              {ui.filter === "mine" || ui.filter === "saved" ? "pins" : "pins in this area"}
+            <span id="pin-results" tabIndex={-1} role="status">
+              <b>{visiblePins.length}</b> {visiblePins.length === 1 ? "pin" : "pins"}
+              {ui.filter === "mine" || ui.filter === "saved" ? "" : " in this area"}
             </span>
             <button
               className={ui.nearby ? "active" : ""}
@@ -551,6 +625,33 @@ export default function PinDropApp() {
               Nearby only
             </button>
           </div>
+          {mapStatus === "failed" && (
+            <div className="map-unavailable">
+              <CircleAlert size={14} aria-hidden="true" />
+              Map unavailable · the list still works.
+              <button className="text-button" onClick={retryMap}>
+                Retry map
+              </button>
+            </div>
+          )}
+          {activeFilters.length > 0 && (
+            <div className="active-filters" role="group" aria-label="Active filters">
+              {activeFilters.map((item) => (
+                <button
+                  key={item.id}
+                  className="filter-chip"
+                  aria-label={`Remove filter: ${item.label}`}
+                  onClick={item.clear}
+                >
+                  {item.label}
+                  <X size={12} aria-hidden="true" />
+                </button>
+              ))}
+              <button className="text-button clear-filters" onClick={clearFilters}>
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
         {data.ready ? (
           <PinFeed
@@ -562,6 +663,9 @@ export default function PinDropApp() {
                 ? "Sign in to see your pins and saved places."
                 : undefined
             }
+            activeFilters={activeFilters}
+            onClearFilters={clearFilters}
+            zoomedOut={ui.zoom < MIN_LISTING_ZOOM && ui.filter !== "mine" && ui.filter !== "saved"}
           />
         ) : (
           <div className="empty">Opening your neighborhood…</div>
@@ -592,13 +696,23 @@ export default function PinDropApp() {
       <ErrorBoundary
         fallback={
           <div className="map-stage">
-            <div className="map-message" role="alert">
-              The map couldn’t start on this device (WebGL may be turned off). Pins are still listed in the panel.
+            <div className="map-message map-failed" role="alert">
+              <strong>The map couldn’t start on this device.</strong>
+              <span>Search, filters and pin details still work from the list.</span>
+              <div className="map-message-actions">
+                <button className="secondary" onClick={browseList}>
+                  <List size={15} /> Browse list
+                </button>
+              </div>
             </div>
           </div>
         }
       >
         <MapView
+          key={mapAttempt}
+          onRetry={retryMap}
+          onStatusChange={onMapStatus}
+          onBrowseList={browseList}
           onManualMove={() => setFollow(false)}
           pins={visiblePins}
           selected={selected}
@@ -922,11 +1036,16 @@ export default function PinDropApp() {
           </button>
         </div>
       </Dialog>
+      {/* Always-present live regions, so screen readers reliably announce
+          messages; the visible toast below mirrors them. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {ui.toast && ui.toast.tone !== "error" ? ui.toast.message : ""}
+      </div>
+      <div className="sr-only" role="alert" aria-live="assertive">
+        {ui.toast?.tone === "error" ? ui.toast.message : ""}
+      </div>
       {ui.toast && (
-        <div
-          role={ui.toast.tone === "error" ? "alert" : "status"}
-          className={"toast " + ui.toast.tone}
-        >
+        <div className={"toast " + ui.toast.tone}>
           {ui.toast.tone === "error" ? <CircleAlert size={16} /> : <Check size={16} />}
           {ui.toast.message}
           <button aria-label="Dismiss message" onClick={() => setUi({ toast: null })}>

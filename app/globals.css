@@ -3929,3 +3929,173 @@ small {
     font-size: 14px;
   }
 }
+
+/* ---- Map failure card ------------------------------------------------------- */
+
+.map-message.map-failed {
+  z-index: 15;
+  color: var(--ink);
+  pointer-events: auto;
+  text-align: center;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100% - 32px));
+  max-width: none;
+  padding: 18px 20px;
+  top: 40%;
+  box-shadow: var(--shadow);
+}
+.map-failed > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.map-message-actions {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+  display: flex;
+}
+
+/* ---- Active filter chips ---------------------------------------------------- */
+
+.active-filters {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0 2px;
+  display: flex;
+}
+.filter-chip {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  overflow: hidden;
+}
+.filter-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.active-filters .clear-filters {
+  color: var(--accent);
+  min-height: 30px;
+  margin-left: 2px;
+  padding: 4px 6px;
+  font-size: 11px;
+  text-decoration: underline;
+}
+#pin-results:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---- Pin card readability --------------------------------------------------- */
+
+.feed-card h3 {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.feed-card .card-distance {
+  color: var(--ink);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+}
+.card-meta {
+  gap: 10px;
+}
+.card-meta .tag {
+  min-width: 0;
+}
+.listing-meta .type-chip {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--ink) 25%, transparent);
+  font-weight: 650;
+}
+.feed-card .sample-label,
+.sample-label {
+  border: 1px dashed #e9be85;
+  color: #e9be85 !important;
+  font-weight: 600;
+}
+:root:not(.dark) .sample-label {
+  color: #9a6413 !important;
+  border-color: #c8913d;
+}
+.feed-card:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+  border-radius: 8px;
+}
+.feed-header .map-unavailable {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  font-size: 11px;
+  display: flex;
+}
+.feed-header .map-unavailable svg {
+  color: #f4bc6a;
+}
+.map-unavailable .text-button {
+  color: var(--accent);
+  min-height: 0;
+  padding: 2px 0;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+/* Phones: the list sheet scrolls as one column, so a tall header (filters,
+   chips, notices) can never squeeze the results out of view. */
+@media (max-width: 1023px) {
+  .side-panel:has(> .feed-header) {
+    overscroll-behavior: contain;
+    overflow-y: auto;
+  }
+  .side-panel:has(> .feed-header) .feed-scroll {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+  .side-panel:has(> .feed-header) .sheet-handle {
+    z-index: 2;
+    background: var(--panel);
+    position: sticky;
+    top: 0;
+  }
+}
+/* A comfortable touch target for "clear search". */
+.search-box button {
+  border-radius: 8px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: -6px -6px -6px 0;
+}
+
+/* iPhone Safari zooms the whole page when a field under 16px is focused,
+   which then makes the page feel stuck and slide sideways. Every text field
+   is 16px on phones; !important because several form styles set smaller
+   sizes with more specific selectors. */
+@media (max-width: 1023px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
