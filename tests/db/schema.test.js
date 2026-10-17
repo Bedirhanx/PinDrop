@@ -343,3 +343,32 @@ describe("API surface", () => {
     await expect(db.query("select report_count from public.pins")).rejects.toThrow(/permission denied/);
   });
 });
+
+describe("contact messages", () => {
+  const send = (email = "visitor@example.com", message = "Hello, I love PinDrop!") =>
+    db.query("insert into public.contact_messages (name, email, message) values ('Vi', $1, $2)", [email, message]);
+
+  it("can be sent by anyone but read only by moderators", async () => {
+    await asAnon(db);
+    await send();
+    await expect(db.query("select * from public.contact_messages")).rejects.toThrow(/permission denied/);
+    await asUser(db, bob);
+    await send("bob@example.com");
+    expect(await rows(db, "select id from public.contact_messages")).toEqual([]);
+    await asAdmin(db);
+    await db.query("update public.profiles set is_moderator = true where id = $1", [carol]);
+    await asUser(db, carol);
+    expect(await rows(db, "select email from public.contact_messages order by email")).toEqual([
+      { email: "bob@example.com" },
+      { email: "visitor@example.com" },
+    ]);
+  });
+
+  it("validates input and limits repeat senders", async () => {
+    await asAnon(db);
+    await expect(send("not-an-email")).rejects.toThrow(/check/);
+    await expect(send("a@example.com", "short")).rejects.toThrow(/check/);
+    for (let i = 0; i < 3; i++) await send("Repeat@Example.com");
+    await expect(send("repeat@example.com")).rejects.toThrow(/already sent/);
+  });
+});

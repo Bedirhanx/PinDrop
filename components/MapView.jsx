@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { getVersion, setWorkerUrl } from "maplibre-gl";
@@ -62,49 +62,54 @@ function mapStyle(dark) {
   };
 }
 
-// Draws a coloured circle with the category symbol and registers it on the map.
-const pendingImages = new WeakMap();
-function addPinImage(map, key) {
-  if (!/^pd-[a-z]+-[a-f0-9]{6}$/.test(key) || map.hasImage(key)) return;
-  let pending = pendingImages.get(map);
-  if (!pending) {
-    pending = new Set();
-    pendingImages.set(map, pending);
-  }
-  if (pending.has(key)) return;
-  pending.add(key);
-
-  // Rendered in a microtask so it never runs inside a React render or effect.
-  queueMicrotask(() => {
-    const [, group, color] = key.split("-");
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    flushSync(() =>
-      root.render(
-        <svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
-          <circle cx="36" cy="36" r="30" fill={"#" + color} stroke="#f3efff" strokeWidth="3" />
-          <CategoryIcon group={group} x={21} y={21} size={30} color="#172136" strokeWidth={2.2} />
-        </svg>,
+// Draws a coloured circle with the category symbol as an image. Cached by
+// key ("pd-<group>-<hex colour>"), so each symbol is drawn once per page.
+// (globalThis.Map: "Map" here is the react-map-gl component.)
+const pinImages = new globalThis.Map();
+function pinImage(key) {
+  if (!pinImages.has(key)) {
+    pinImages.set(
+      key,
+      // Wait a microtask so React rendering never runs inside a React effect.
+      Promise.resolve().then(
+        () =>
+          new Promise((resolve, reject) => {
+            const [, group, color] = key.split("-");
+            const container = document.createElement("div");
+            const root = createRoot(container);
+            flushSync(() =>
+              root.render(
+                <svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
+                  <circle cx="36" cy="36" r="30" fill={"#" + color} stroke="#f3efff" strokeWidth="3" />
+                  <CategoryIcon group={group} x={21} y={21} size={30} color="#172136" strokeWidth={2.2} />
+                </svg>,
+              ),
+            );
+            const markup = container.innerHTML;
+            root.unmount();
+            const image = new Image(72, 72);
+            image.onload = () => resolve(image);
+            image.onerror = () => {
+              pinImages.delete(key);
+              reject(new Error("Pin symbol failed to load"));
+            };
+            image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
+          }),
       ),
     );
-    const markup = container.innerHTML;
-    root.unmount();
-    loadPinImage(map, key, markup, pending);
-  });
+  }
+  return pinImages.get(key);
 }
 
-function loadPinImage(map, key, markup, pending) {
-  const image = new Image(72, 72);
-  image.onload = () => {
-    pending.delete(key);
+// MapLibre asks for pin symbols as layers need them and waits for this.
+function resolvePinImage(map) {
+  return async (key) => {
+    if (!/^pd-[a-z]+-[a-f0-9]{6}$/.test(key)) return;
     try {
-      if (map.getStyle() && !map.hasImage(key)) {
-        map.addImage(key, image, { pixelRatio: 2 });
-      }
+      const image = await pinImage(key);
+      if (map.getStyle() && !map.hasImage(key)) map.addImage(key, image, { pixelRatio: 2 });
     } catch {}
   };
-  image.onerror = () => pending.delete(key);
-  image.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
 }
 
 function MapLegend() {
@@ -171,6 +176,14 @@ export default function MapView({
   const tileErrors = useRef(0);
   const firstHome = useRef(true);
   const style = useMemo(() => mapStyle(theme === "dark"), [theme]);
+
+  // react-map-gl attaches the map after its own setup, so register the pin
+  // symbol resolver from a callback ref, before the pin layers ask for them.
+  const attachMap = useCallback((instance) => {
+    mapRef.current = instance;
+    const map = instance?.getMap();
+    map?.setMissingStyleImageResolver(resolvePinImage(map));
+  }, []);
 
   // Fly to the selected pin.
   useEffect(() => {
@@ -246,18 +259,6 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, loaded]);
 
-  // Make sure every visible category has its map symbol.
-  useEffect(() => {
-    if (!loaded || !mapRef.current) return;
-    const map = mapRef.current.getMap();
-    const onMissing = (event) => addPinImage(map, event.id);
-    map.on("styleimagemissing", onMissing);
-    for (const pin of pins) addPinImage(map, pinIconKey(pin));
-    return () => {
-      map.off("styleimagemissing", onMissing);
-    };
-  }, [loaded, pins, style]);
-
   // Jump to a neighborhood chosen from the area picker.
   useEffect(() => {
     if (!loaded || !areaFocus) return;
@@ -329,7 +330,7 @@ export default function MapView({
   return (
     <div className="map-stage">
       <Map
-        ref={mapRef}
+        ref={attachMap}
         initialViewState={{ longitude: CAMPUS.lng, latitude: CAMPUS.lat, zoom: 16 }}
         mapStyle={style}
         style={{ width: "100%", height: "100%" }}

@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import AccountDialog from "./AccountDialog";
+import ChatWidget from "./ChatWidget";
 import CreatePinDialog from "./CreatePinDialog";
 import Dialog from "./Dialog";
 import ErrorBoundary from "./ErrorBoundary";
@@ -334,6 +335,15 @@ export default function PinDropApp() {
     setFollow(false);
   };
 
+  async function signOutHere() {
+    try {
+      await usePins.getState().signOut();
+      notify("You’re logged out.");
+    } catch (error) {
+      handleError(error);
+    }
+  }
+
   function startCreating() {
     stopNavigation();
     if (!data.backend) {
@@ -563,6 +573,16 @@ export default function PinDropApp() {
             <p>Leave it a little better than you found it.</p>
           </div>
         </div>
+        <nav className="panel-footer" aria-label="About PinDrop">
+          <Link href="/about">About us</Link>
+          <Link href="/contact">Contact</Link>
+          <Link href="/about#safety">Safety &amp; privacy</Link>
+          {userId && (
+            <button className="text-button" onClick={signOutHere}>
+              Log out
+            </button>
+          )}
+        </nav>
       </>
     );
   }
@@ -644,7 +664,12 @@ export default function PinDropApp() {
             </button>
           )}
         </form>
+        <nav className="topbar-links" aria-label="Site">
+          <Link href="/about">About us</Link>
+          <Link href="/contact">Contact</Link>
+        </nav>
         <div className="topbar-right">
+          <ChatWidget className="in-app" />
           {!online && (
             <span className="offline-pill" role="status">
               <WifiOff size={13} />
@@ -659,25 +684,28 @@ export default function PinDropApp() {
             <Settings2 size={19} />
           </button>
           {userId ? (
-            <button
-              className="avatar"
-              aria-label={pendingOffers ? `My account, ${pendingOffers} pending offers` : "My account"}
-              onClick={() => navigate("/account")}
-            >
-              {(data.profile?.name || "N").slice(0, 1).toUpperCase()}
-              {pendingOffers > 0 && <span className="avatar-badge">{pendingOffers}</span>}
-            </button>
+            <>
+              <button
+                className="avatar"
+                aria-label={pendingOffers ? `My account, ${pendingOffers} pending offers` : "My account"}
+                onClick={() => navigate("/account")}
+              >
+                {(data.profile?.name || "N").slice(0, 1).toUpperCase()}
+                {pendingOffers > 0 && <span className="avatar-badge">{pendingOffers}</span>}
+              </button>
+              <button className="account-link logout-link" onClick={signOutHere}>
+                Log out
+              </button>
+            </>
           ) : (
-            <button
-              className="account-link"
-              disabled={!data.authReady}
-              onClick={() => {
-                setUi({ signInReason: "" });
-                navigate("/account");
-              }}
-            >
-              Sign in
-            </button>
+            <>
+              <Link className="account-link" href="/signin">
+                Sign in
+              </Link>
+              <Link className="primary signup-link" href="/signup">
+                Sign up
+              </Link>
+            </>
           )}
         </div>
       </header>

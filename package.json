@@ -20,6 +20,7 @@
     "node": ">=20.9.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@supabase/supabase-js": "^2.118.0",
     "idb-keyval": "^6.3.0",
     "lucide-react": "^1.59.0",
