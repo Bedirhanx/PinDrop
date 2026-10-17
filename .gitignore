@@ -8,3 +8,5 @@ public/vendor/
 .env
 test-results/
 playwright-report/
+# Original team photos; the site serves resized copies from public/team/.
+public/assest/Members/
