@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useShallow } from "zustand/react/shallow";
 import {
   ArrowUpRight,
   CalendarDays,
   Check,
   ChevronDown,
   ChevronUp,
+  CircleAlert,
+  Cloud,
   Compass,
   Gift,
   HandHeart,
   House,
   Leaf,
+  LoaderCircle,
   LocateFixed,
   MapPin,
   Minus,
@@ -28,6 +33,7 @@ import {
 import AccountDialog from "./AccountDialog";
 import CreatePinDialog from "./CreatePinDialog";
 import Dialog from "./Dialog";
+import ErrorBoundary from "./ErrorBoundary";
 import MapView from "./MapView";
 import NavigationPanel from "./NavigationPanel";
 import PinDetail from "./PinDetail";
@@ -36,7 +42,6 @@ import SettingsDialog from "./SettingsDialog";
 import { CAMPUS, MIN_LISTING_ZOOM, NEIGHBORHOODS } from "@/lib/constants";
 import { useCompass, useGeolocation, useRoute } from "@/lib/navigation";
 import {
-  categoryGroupFor,
   distance,
   effectiveStatus,
   groupsForType,
@@ -44,9 +49,11 @@ import {
   isPlace,
   isRequest,
   matchesSearch,
+  pinGroupId,
   rankScore,
 } from "@/lib/pins";
-import { usePins, useUi, writeSetting } from "@/lib/store";
+import { sampleById, samplesInArea } from "@/lib/samples";
+import { usePins, useUi } from "@/lib/store";
 
 const FILTERS = [
   { id: "all", label: "All pins", icon: MapPin },
@@ -57,24 +64,20 @@ const FILTERS = [
   { id: "nature", label: "Nature", icon: Leaf },
   { id: "event", label: "Events", icon: CalendarDays },
   { id: "done", label: "Completed", icon: Check },
+  { id: "saved", label: "Saved", icon: Check },
   { id: "mine", label: "Mine", icon: UserRound },
 ];
 
-// Paths are pushed with the History API so the map never reloads.
-function navigate(path) {
-  if (window.location.pathname !== path) window.history.pushState(null, "", path);
-}
-
-function matchesFilter(pin, filter, status, userId) {
+function matchesFilter(pin, filter, status, userId, saved) {
   switch (filter) {
     case "all":
-      return true;
+      return status !== "done";
     case "help":
       return isRequest(pin.type) && status !== "done";
     case "nature":
       return pin.type === "nature" || pin.communityCategory === "environment";
     case "offering":
-      return pin.type === "offering";
+      return pin.type === "offering" && status !== "done";
     case "place":
       return isPlace(pin.type);
     case "alert":
@@ -83,20 +86,72 @@ function matchesFilter(pin, filter, status, userId) {
       return pin.type === "event";
     case "done":
       return status === "done";
+    case "saved":
+      return saved.includes(pin.id);
     case "mine":
-      return pin.authorId === userId || pin.claimantId === userId;
+      return !!userId && (pin.authorId === userId || pin.claimantId === userId);
     default:
       return false;
   }
 }
 
-export default function PinDropApp() {
-  const ui = useUi();
-  const data = usePins();
-  const pathname = usePathname();
-  const profile = data.profile;
+function subscribeOnline(callback) {
+  window.addEventListener("online", callback);
+  window.addEventListener("offline", callback);
+  return () => {
+    window.removeEventListener("online", callback);
+    window.removeEventListener("offline", callback);
+  };
+}
 
-  const [now, setNow] = useState(Date.now());
+export default function PinDropApp() {
+  const online = useSyncExternalStore(
+    subscribeOnline,
+    () => navigator.onLine,
+    () => true,
+  );
+  const router = useRouter();
+  const pathname = usePathname();
+  const navigate = useCallback(
+    (path) => {
+      if (window.location.pathname !== path) router.push(path, { scroll: false });
+    },
+    [router],
+  );
+
+  const ui = useUi(
+    useShallow((s) => ({
+      filter: s.filter,
+      categoryGroup: s.categoryGroup,
+      search: s.search,
+      zoom: s.zoom,
+      center: s.center,
+      bbox: s.bbox,
+      nearby: s.nearby,
+      showSamples: s.showSamples,
+      theme: s.theme,
+      sheet: s.sheet,
+      toast: s.toast,
+    })),
+  );
+  const { set: setUi, notify, setPreference } = useUi.getState();
+  const data = usePins(
+    useShallow((s) => ({
+      ready: s.ready,
+      backend: s.backend,
+      sync: s.sync,
+      pins: s.pins,
+      missing: s.missing,
+      user: s.user,
+      profile: s.profile,
+      saved: s.saved,
+      blocked: s.blocked,
+      authReady: s.authReady,
+    })),
+  );
+  const userId = data.user?.id;
+
+  const [now, setNow] = useState(() => Date.now());
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState(null);
   const [homeKey, setHomeKey] = useState(0);
@@ -105,7 +160,6 @@ export default function PinDropApp() {
   const [navigating, setNavigating] = useState(false);
   const [travelMode, setTravelMode] = useState("walking");
   const [headingUp, setHeadingUp] = useState(false);
-  const [online, setOnline] = useState(true);
   const [duplicate, setDuplicate] = useState(null);
   const [publishing, setPublishing] = useState(false);
   const [usePreviewOrigin, setUsePreviewOrigin] = useState(true);
@@ -113,6 +167,10 @@ export default function PinDropApp() {
   const [zoomRequest, setZoomRequest] = useState(null);
   const [area, setArea] = useState("deanza");
   const [areaFocus, setAreaFocus] = useState(null);
+  // Load failure for the pin in the URL, kept with its id so it resets on
+  // navigation.
+  const [pinFailure, setPinFailure] = useState({ id: null, message: "" });
+  const [signInOpen, setSignInOpen] = useState(false);
 
   const location = useGeolocation();
   const compass = useCompass(location.fix?.heading ?? null);
@@ -134,26 +192,59 @@ export default function PinDropApp() {
     travelMode === "cycling" ? "cycling" : travelMode === "driving" ? "driving" : "walking",
   );
 
+  // Errors from store actions: open sign-in when an account is needed.
+  const handleError = useCallback(
+    (error) => {
+      if (error?.signIn) {
+        setUi({ signInReason: error.message });
+        setSignInOpen(true);
+      } else {
+        notify(error?.message || "Something went wrong.", "error");
+      }
+    },
+    [notify, setUi],
+  );
+
   useEffect(() => {
-    data.init();
-    setOnline(navigator.onLine);
+    usePins.getState().init().catch(handleError);
     const timer = setInterval(() => setNow(Date.now()), 3e4);
-    const onNetwork = () => setOnline(navigator.onLine);
+    const onNetwork = () => {
+      if (navigator.onLine) usePins.getState().loadArea(useUi.getState().bbox, { force: true });
+    };
+    const onFocus = () => {
+      if (document.visibilityState === "visible") {
+        usePins.getState().loadArea(useUi.getState().bbox, { force: true });
+      }
+    };
     window.addEventListener("online", onNetwork);
     window.addEventListener("offline", onNetwork);
+    document.addEventListener("visibilitychange", onFocus);
     return () => {
       clearInterval(timer);
       window.removeEventListener("online", onNetwork);
       window.removeEventListener("offline", onNetwork);
+      document.removeEventListener("visibilitychange", onFocus);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleError]);
 
-  // Load fictional neighborhood samples for whatever area is on screen.
+  // Load pins for the visible area once the map stops moving.
   useEffect(() => {
-    if (data.ready) data.addSamples(ui.bbox, ui.zoom);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!data.ready || ui.zoom < MIN_LISTING_ZOOM) return;
+    const timer = setTimeout(() => usePins.getState().loadArea(ui.bbox), 350);
+    return () => clearTimeout(timer);
   }, [data.ready, ui.bbox, ui.zoom]);
+
+  // Refresh the visible area every minute so deletions and edits show up even
+  // if a live update was missed.
+  useEffect(() => {
+    if (!data.ready) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible" && useUi.getState().zoom >= MIN_LISTING_ZOOM) {
+        usePins.getState().loadArea(useUi.getState().bbox, { force: true });
+      }
+    }, 6e4);
+    return () => clearInterval(timer);
+  }, [data.ready]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", ui.theme === "dark");
@@ -163,44 +254,78 @@ export default function PinDropApp() {
   }, [ui.theme]);
 
   useEffect(() => {
-    if (location.error) ui.notify(location.error);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.error]);
+    if (location.error) notify(location.error, location.fix ? "info" : "error");
+  }, [location.error, location.fix, notify]);
 
-  const allPins = useMemo(() => data.pins.filter((pin) => !pin.deletedAt), [data.pins]);
-  const pinId = pathname.startsWith("/p/")
-    ? decodeURIComponent(pathname.slice(3))
-    : undefined;
-  const selected = pinId ? allPins.find((pin) => pin.id === pinId) : undefined;
+  const pinId = pathname.startsWith("/p/") ? decodeURIComponent(pathname.slice(3)) : undefined;
+  const selected = pinId ? data.pins[pinId] || sampleById(pinId) : undefined;
+  const pinMissing = !!pinId && !selected && !!data.missing[pinId];
+  const pinError = pinFailure.id === pinId ? pinFailure.message : "";
+  const retryPin = useCallback(() => {
+    setPinFailure({ id: null, message: "" });
+    usePins
+      .getState()
+      .loadPin(pinId)
+      .catch((error) => setPinFailure({ id: pinId, message: error.message }));
+  }, [pinId]);
+
+  // Fetch the pin in the URL so shared links always show the latest version.
+  useEffect(() => {
+    if (!pinId || !data.ready || sampleById(pinId)) return;
+    let cancelled = false;
+    usePins
+      .getState()
+      .loadPin(pinId)
+      .catch((error) => !cancelled && setPinFailure({ id: pinId, message: error.message }));
+    return () => {
+      cancelled = true;
+    };
+  }, [pinId, data.ready]);
+
+  const blockedIds = useMemo(() => new Set(data.blocked.map((b) => b.id)), [data.blocked]);
+
+  const areaPins = useMemo(() => {
+    const real = Object.values(data.pins);
+    return ui.showSamples ? [...real, ...samplesInArea(ui.bbox, ui.zoom)] : real;
+  }, [data.pins, ui.showSamples, ui.bbox, ui.zoom]);
 
   const visiblePins = useMemo(() => {
-    if (ui.zoom < MIN_LISTING_ZOOM) return [];
-    return allPins
-      .filter((pin) => {
-        if (ui.blocked.includes(pin.authorId)) return false;
-        const status = effectiveStatus(pin, now);
-        if (status === "archived" || status === "hidden") return false;
-        if (!inBbox(pin, ui.bbox)) return false;
-        if (
-          ui.categoryGroup !== "all" &&
-          (pin.communityCategory || categoryGroupFor(pin.category)?.id) !== ui.categoryGroup
-        ) {
-          return false;
-        }
-        if (ui.nearby && distance(ui.center, pin) > 1500) return false;
-        if (!matchesSearch(pin, ui.search)) return false;
-        return matchesFilter(pin, ui.filter, status, profile?.id);
-      })
-      .sort((a, b) => rankScore(b, ui.center, now) - rankScore(a, ui.center, now));
-  }, [allPins, ui.bbox, ui.center, ui.zoom, ui.nearby, ui.search, ui.filter, ui.categoryGroup, ui.blocked, now, profile?.id]);
+    if (ui.zoom < MIN_LISTING_ZOOM && ui.filter !== "mine" && ui.filter !== "saved") return [];
+    const scored = [];
+    for (const pin of areaPins) {
+      if (blockedIds.has(pin.authorId)) continue;
+      const status = effectiveStatus(pin, now);
+      const mine = !!userId && pin.authorId === userId;
+      if (status === "archived" && !mine) continue;
+      if ((status === "cancelled" || pin.hidden) && !mine) continue;
+      if (ui.filter !== "mine" && ui.filter !== "saved" && !inBbox(pin, ui.bbox)) continue;
+      if (ui.categoryGroup !== "all" && pinGroupId(pin) !== ui.categoryGroup) continue;
+      if (ui.nearby && distance(ui.center, pin) > 1500) continue;
+      if (!matchesSearch(pin, ui.search)) continue;
+      if (!matchesFilter(pin, ui.filter, status, userId, data.saved)) continue;
+      scored.push([rankScore(pin, ui.center, now), pin]);
+    }
+    return scored.sort((a, b) => b[0] - a[0]).map(([, pin]) => pin);
+  }, [areaPins, blockedIds, ui.bbox, ui.center, ui.zoom, ui.nearby, ui.search, ui.filter, ui.categoryGroup, now, userId, data.saved]);
 
-  const selectPin = (id) => {
-    setPreviewOrigin(ui.center);
-    setNavigationPin(null);
-    setNavigating(false);
-    navigate("/p/" + id);
-    ui.set({ sheet: "half" });
-  };
+  const pendingOffers = useMemo(
+    () =>
+      userId
+        ? Object.values(data.pins).filter((pin) => pin.authorId === userId && pin.status === "claimed").length
+        : 0,
+    [data.pins, userId],
+  );
+
+  const selectPin = useCallback(
+    (id) => {
+      setPreviewOrigin(useUi.getState().center);
+      setNavigationPin(null);
+      setNavigating(false);
+      navigate("/p/" + id);
+      setUi({ sheet: "half" });
+    },
+    [navigate, setUi],
+  );
 
   const stopNavigation = () => {
     setNavigating(false);
@@ -209,10 +334,23 @@ export default function PinDropApp() {
     setFollow(false);
   };
 
+  function startCreating() {
+    stopNavigation();
+    if (!data.backend) {
+      notify("Sharing pins needs PinDrop’s community server, which isn’t configured yet.", "error");
+      return;
+    }
+    if (!userId) {
+      handleError({ signIn: true, message: "Sign in to drop a pin. It only takes an email." });
+      return;
+    }
+    setCreating(true);
+  }
+
   async function publish(force = false) {
     if (!draft) return;
     if (!force) {
-      const nearbyTwin = allPins.find(
+      const nearbyTwin = Object.values(data.pins).find(
         (pin) =>
           pin.type === draft.type &&
           pin.category === draft.category &&
@@ -226,36 +364,36 @@ export default function PinDropApp() {
     }
     setPublishing(true);
     try {
-      const pin = await data.create(draft);
+      const { photo, photoPreview, ...fields } = draft;
+      const pin = await usePins.getState().create(fields, photo);
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
       setDraft(null);
       setDuplicate(null);
       navigate("/p/" + pin.id);
-      ui.notify("Your pin is on the map. Good things start here.");
+      notify(
+        pin.approximate
+          ? "Your pin is on the map, shown in an approximate area."
+          : "Your pin is on the map. Good things start here.",
+      );
     } catch (error) {
-      ui.notify(error.message);
+      setDuplicate(null);
+      handleError(error);
     } finally {
       setPublishing(false);
     }
-  }
-
-  if (data.error) {
-    return (
-      <div className="startup">
-        <MapPin size={32} />
-        <h1>We couldn’t open your local data.</h1>
-        <p>{String(data.error)}</p>
-        <button className="primary" onClick={() => window.location.reload()}>
-          Try again
-        </button>
-        <p>Check that browser storage is enabled.</p>
-      </div>
-    );
   }
 
   const areaName =
     area === "deanza"
       ? "Around De Anza"
       : NEIGHBORHOODS.find((n) => n.id === area)?.name || "In this area";
+
+  let syncLabel;
+  if (!data.backend) syncLabel = "Preview · sharing not configured";
+  else if (!online || data.sync === "offline") syncLabel = "Offline · showing saved copy";
+  else if (data.sync === "error") syncLabel = "Couldn’t refresh · showing saved copy";
+  else if (data.sync === "loading") syncLabel = "Updating…";
+  else syncLabel = "Live community map";
 
   let panel;
   if (navigationPin) {
@@ -281,7 +419,7 @@ export default function PinDropApp() {
         onUseMapCenter={() => {
           location.stop();
           setUsePreviewOrigin(true);
-          setPreviewOrigin(ui.center);
+          setPreviewOrigin(useUi.getState().center);
           setNavigating(false);
           setFollow(false);
         }}
@@ -302,29 +440,53 @@ export default function PinDropApp() {
         headingUp={headingUp}
         setHeadingUp={setHeadingUp}
         locationError={usePreviewOrigin ? "" : location.error}
+        locating={location.tracking && !location.fix}
       />
     );
-  } else if (selected && profile) {
+  } else if (selected) {
     panel = (
       <PinDetail
+        key={selected.id}
         pin={selected}
-        profile={profile}
+        userId={userId}
         center={ui.center}
+        onError={handleError}
         onClose={() => navigate("/")}
         onNavigate={() => {
           setUsePreviewOrigin(!location.fix);
           setNavigationPin(selected);
           setNavigating(false);
-          ui.set({ sheet: "half" });
+          setUi({ sheet: "half" });
         }}
       />
     );
-  } else if (pinId && data.ready) {
+  } else if (pinId) {
     panel = (
-      <div className="empty">
-        <MapPin size={30} />
-        <h3>This pin isn’t on this device.</h3>
-        <p>It may have been deleted, or it was saved in a different browser.</p>
+      <div className="empty" role={pinMissing || pinError ? "alert" : "status"}>
+        {pinMissing ? (
+          <>
+            <MapPin size={30} />
+            <h3>This pin isn’t on the map anymore.</h3>
+            <p>It may have been completed and removed, deleted by its author, or the link is incomplete.</p>
+          </>
+        ) : pinError ? (
+          <>
+            <CircleAlert size={30} />
+            <h3>Couldn’t load this pin.</h3>
+            <p>{pinError}</p>
+            <button
+              className="secondary"
+              onClick={retryPin}
+            >
+              Try again
+            </button>
+          </>
+        ) : (
+          <>
+            <LoaderCircle size={30} className="spin" />
+            <h3>Opening pin…</h3>
+          </>
+        )}
         <button className="secondary" onClick={() => navigate("/")}>
           Back to map
         </button>
@@ -337,16 +499,16 @@ export default function PinDropApp() {
           <p className="eyebrow">YOUR NEIGHBORHOOD, A LITTLE BETTER</p>
           <h1>
             {areaName}
-            <span className="heading-spark">✳</span>
+            <span className="heading-spark" aria-hidden="true">✳</span>
           </h1>
           <p>A little help is closer than you think.</p>
           {visiblePins.some((pin) => pin.sample) && (
             <p className="sample-feed-note">
-              Includes illustrative sample pins from a fictional neighborhood.
+              Includes illustrative sample pins from a fictional neighborhood. You can hide them in Settings.
             </p>
           )}
           {ui.search && (
-            <p className="search-result-label">
+            <p className="search-result-label" role="status">
               Results for “{ui.search}” in this map area.
             </p>
           )}
@@ -355,7 +517,7 @@ export default function PinDropApp() {
             <select
               aria-label="Filter community category"
               value={ui.categoryGroup}
-              onChange={(event) => ui.set({ categoryGroup: event.target.value })}
+              onChange={(event) => setUi({ categoryGroup: event.target.value })}
             >
               <option value="all">All community categories</option>
               {groupsForType(ui.filter).map((group) => (
@@ -367,14 +529,13 @@ export default function PinDropApp() {
           </label>
           <div className="feed-summary">
             <span>
-              <b>{visiblePins.length}</b> pins in this area
+              <b>{visiblePins.length}</b>{" "}
+              {ui.filter === "mine" || ui.filter === "saved" ? "pins" : "pins in this area"}
             </span>
             <button
               className={ui.nearby ? "active" : ""}
-              onClick={() => {
-                ui.set({ nearby: !ui.nearby });
-                writeSetting("pindrop-nearby", String(!ui.nearby));
-              }}
+              aria-pressed={ui.nearby}
+              onClick={() => setPreference({ nearby: !ui.nearby })}
             >
               <SlidersHorizontal size={13} />
               Nearby only
@@ -382,12 +543,21 @@ export default function PinDropApp() {
           </div>
         </div>
         {data.ready ? (
-          <PinFeed pins={visiblePins} center={ui.center} onSelect={selectPin} />
+          <PinFeed
+            pins={visiblePins}
+            center={ui.center}
+            onSelect={selectPin}
+            emptyHint={
+              (ui.filter === "mine" || ui.filter === "saved") && !userId
+                ? "Sign in to see your pins and saved places."
+                : undefined
+            }
+          />
         ) : (
           <div className="empty">Opening your neighborhood…</div>
         )}
         <div className="community-note">
-          <span>✳</span>
+          <span aria-hidden="true">✳</span>
           <div>
             <strong>Little things make a place.</strong>
             <p>Leave it a little better than you found it.</p>
@@ -399,39 +569,48 @@ export default function PinDropApp() {
 
   return (
     <main className="app-shell">
-      <MapView
-        onManualMove={() => setFollow(false)}
-        pins={visiblePins}
-        selected={selected}
-        onSelect={selectPin}
-        fix={location.fix}
-        heading={compass.heading}
-        follow={follow}
-        route={directions.route}
-        headingUp={headingUp}
-        draft={draft}
-        onDraft={(point) => setDraft((current) => (current ? { ...current, ...point } : null))}
-        homeKey={homeKey}
-        areaFocus={areaFocus}
-        zoomRequest={zoomRequest}
-      />
+      <ErrorBoundary
+        fallback={
+          <div className="map-stage">
+            <div className="map-message" role="alert">
+              The map couldn’t start on this device (WebGL may be turned off). Pins are still listed in the panel.
+            </div>
+          </div>
+        }
+      >
+        <MapView
+          onManualMove={() => setFollow(false)}
+          pins={visiblePins}
+          selected={selected}
+          onSelect={selectPin}
+          fix={location.fix}
+          heading={compass.heading}
+          follow={follow}
+          route={directions.route}
+          headingUp={headingUp}
+          draft={draft}
+          onDraft={(point) => setDraft((current) => (current ? { ...current, ...point } : null))}
+          homeKey={homeKey}
+          areaFocus={areaFocus}
+          zoomRequest={zoomRequest}
+        />
+      </ErrorBoundary>
 
       <header className="topbar">
-        <a
-          className="brand"
-          href="/"
-          onClick={(event) => {
-            event.preventDefault();
-            navigate("/");
-            stopNavigation();
-          }}
-        >
+        <Link className="brand" href="/" scroll={false} onClick={stopNavigation}>
           <span className="brand-symbol">
-            <MapPin size={22} fill="currentColor" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand-mark.webp"
+              srcSet="/brand-mark.webp 1x, /brand-mark@2x.webp 2x"
+              alt=""
+              width={35}
+              height={35}
+            />
           </span>
           PinDrop
           <span className="brand-period">.</span>
-        </a>
+        </Link>
         <div className="topbar-divider" />
         <span className="topbar-place">
           De Anza &amp; beyond
@@ -444,63 +623,68 @@ export default function PinDropApp() {
             event.preventDefault();
             navigate("/");
             stopNavigation();
-            ui.set({ sheet: "full" });
+            setUi({ sheet: "full" });
           }}
         >
-          <Search size={18} />
+          <Search size={18} aria-hidden="true" />
           <input
             aria-label="Search opportunities in this area"
             placeholder="Find opportunities, skills, or help…"
             value={ui.search}
+            maxLength={100}
             onChange={(event) => {
-              ui.set({ search: event.target.value });
+              setUi({ search: event.target.value });
               if (pathname !== "/") navigate("/");
               if (navigationPin) stopNavigation();
             }}
           />
           {ui.search && (
-            <button
-              type="button"
-              aria-label="Clear opportunity search"
-              onClick={() => ui.set({ search: "" })}
-            >
+            <button type="button" aria-label="Clear opportunity search" onClick={() => setUi({ search: "" })}>
               <X size={15} />
             </button>
           )}
         </form>
         <div className="topbar-right">
           {!online && (
-            <span className="offline-pill">
+            <span className="offline-pill" role="status">
               <WifiOff size={13} />
               Offline
             </span>
           )}
-          <span className="local-pill">
-            <i /> On this device
+          <span className={"local-pill" + (data.backend && online ? " live" : "")}>
+            {data.backend && online ? <Cloud size={13} /> : <i />}
+            {data.backend ? (online ? "Community" : "Saved copy") : "Preview"}
           </span>
-          <button
-            className="icon-button"
-            aria-label="Open settings"
-            onClick={() => navigate("/settings")}
-          >
+          <button className="icon-button" aria-label="Open settings" onClick={() => navigate("/settings")}>
             <Settings2 size={19} />
           </button>
-          <button
-            className="avatar"
-            aria-label="My account"
-            onClick={() => navigate("/account")}
-          >
-            {profile?.name.slice(0, 1) || "Y"}
-          </button>
-          <button className="account-link" onClick={() => navigate("/account")}>
-            Sign in
-          </button>
+          {userId ? (
+            <button
+              className="avatar"
+              aria-label={pendingOffers ? `My account, ${pendingOffers} pending offers` : "My account"}
+              onClick={() => navigate("/account")}
+            >
+              {(data.profile?.name || "N").slice(0, 1).toUpperCase()}
+              {pendingOffers > 0 && <span className="avatar-badge">{pendingOffers}</span>}
+            </button>
+          ) : (
+            <button
+              className="account-link"
+              disabled={!data.authReady}
+              onClick={() => {
+                setUi({ signInReason: "" });
+                navigate("/account");
+              }}
+            >
+              Sign in
+            </button>
+          )}
         </div>
       </header>
 
-      <div className="map-filters">
+      <nav className="map-filters" aria-label="Filter pins">
         <label className="area-picker">
-          <MapPin size={14} />
+          <MapPin size={14} aria-hidden="true" />
           <select
             aria-label="Explore a Bay Area neighborhood"
             value={area}
@@ -511,7 +695,7 @@ export default function PinDropApp() {
               setAreaFocus({ ...place, zoom: id === "deanza" ? 16 : 15, key: Date.now() });
               navigate("/");
               stopNavigation();
-              ui.set({ filter: "all", categoryGroup: "all", search: "" });
+              setUi({ filter: "all", categoryGroup: "all", search: "" });
             }}
           >
             <option value="deanza">De Anza College</option>
@@ -526,8 +710,9 @@ export default function PinDropApp() {
           <button
             key={id}
             className={ui.filter === id ? "active" : ""}
+            aria-pressed={ui.filter === id}
             onClick={() => {
-              ui.set({
+              setUi({
                 filter: id,
                 categoryGroup: groupsForType(id).some((g) => g.id === ui.categoryGroup)
                   ? ui.categoryGroup
@@ -537,11 +722,11 @@ export default function PinDropApp() {
               stopNavigation();
             }}
           >
-            <Icon size={15} />
+            <Icon size={15} aria-hidden="true" />
             {label}
           </button>
         ))}
-      </div>
+      </nav>
 
       <div className="map-controls">
         <button
@@ -558,18 +743,19 @@ export default function PinDropApp() {
         </button>
         <button
           className={"map-control " + (follow ? "active" : "")}
-          aria-label="Locate me"
+          aria-label={location.tracking && !location.fix ? "Finding your location" : "Locate me"}
+          aria-pressed={follow}
           title="Locate me"
           onClick={() => {
             location.start();
             setFollow(true);
           }}
         >
-          <LocateFixed size={20} />
+          {location.tracking && !location.fix ? <LoaderCircle size={20} className="spin" /> : <LocateFixed size={20} />}
         </button>
         <button
           className="map-control compass-control"
-          aria-label="Enable compass"
+          aria-label={`Enable compass. ${compass.status}`}
           title={compass.status}
           onClick={compass.enable}
         >
@@ -577,7 +763,7 @@ export default function PinDropApp() {
           <small>{compass.heading === null ? "N" : Math.round(compass.heading) + "°"}</small>
         </button>
         <button
-          className="map-control"
+          className="map-control zoom-control"
           aria-label="Zoom in"
           title="Zoom in"
           onClick={() => setZoomRequest({ delta: 1, key: Date.now() })}
@@ -585,7 +771,7 @@ export default function PinDropApp() {
           <Plus size={20} />
         </button>
         <button
-          className="map-control"
+          className="map-control zoom-control"
           aria-label="Zoom out"
           title="Zoom out"
           onClick={() => setZoomRequest({ delta: -1, key: Date.now() })}
@@ -595,39 +781,38 @@ export default function PinDropApp() {
       </div>
 
       {!draft && (
-        <button
-          className="drop-fab"
-          onClick={() => {
-            stopNavigation();
-            setCreating(true);
-          }}
-        >
+        <button className="drop-fab" onClick={startCreating}>
           <Plus size={21} />
           <span>Drop a pin</span>
         </button>
       )}
       {draft && (
-        <div className="placement-banner">
+        <div className="placement-banner" role="region" aria-label="Place your pin">
           <div>
-            <MapPin size={21} />
+            <MapPin size={21} aria-hidden="true" />
             <span>
               <strong>Put it in the right place.</strong>
               <small>
-                Drag the pin or tap the map · {draft.lat.toFixed(5)},{" "}
-                {draft.lng.toFixed(5)}
+                {draft.approximate
+                  ? "Drag the pin or tap the map · only an approximate area (~400 m) will be shared"
+                  : "Drag the pin or tap the map"}
               </small>
             </span>
           </div>
           <button
             className="icon-button"
             aria-label="Cancel pin placement"
-            onClick={() => setDraft(null)}
+            onClick={() => {
+              if (draft.photoPreview) URL.revokeObjectURL(draft.photoPreview);
+              setDraft(null);
+            }}
           >
             <X size={18} />
           </button>
           <button className="primary" disabled={publishing} onClick={() => publish()}>
-            {publishing ? "Saving…" : "Publish pin"}
-            <ArrowUpRight size={16} />
+            {publishing ? <LoaderCircle size={16} className="spin" /> : null}
+            {publishing ? "Publishing…" : "Publish pin"}
+            {!publishing && <ArrowUpRight size={16} />}
           </button>
         </div>
       )}
@@ -640,9 +825,7 @@ export default function PinDropApp() {
           className="sheet-handle"
           aria-label="Change panel height"
           onClick={() =>
-            ui.set({
-              sheet: ui.sheet === "peek" ? "half" : ui.sheet === "half" ? "full" : "peek",
-            })
+            setUi({ sheet: ui.sheet === "peek" ? "half" : ui.sheet === "half" ? "full" : "peek" })
           }
         >
           <span />
@@ -652,11 +835,9 @@ export default function PinDropApp() {
         {panel}
       </aside>
 
-      <div className="map-status">
-        <span className="pulse-dot" />
-        {online ? "Explore your neighborhood" : "Offline · saved pins available"}
-        <span className="status-divider" />
-        Local-first preview
+      <div className="map-status" role="status">
+        <span className={"pulse-dot" + (data.sync === "error" || (!online && data.backend) ? " warn" : "")} />
+        {syncLabel}
       </div>
 
       {creating && (
@@ -671,10 +852,22 @@ export default function PinDropApp() {
           }}
         />
       )}
-      {pathname === "/account" && profile && <AccountDialog onClose={() => navigate("/")} />}
-      {pathname === "/settings" && profile && (
-        <SettingsDialog profile={profile} onClose={() => navigate("/")} />
+      {(pathname === "/account" || signInOpen) && (
+        <AccountDialog
+          onClose={() => {
+            setSignInOpen(false);
+            setUi({ signInReason: "" });
+            if (pathname === "/account") navigate("/");
+          }}
+          onError={handleError}
+          onShowMine={() => {
+            setUi({ filter: "mine", categoryGroup: "all" });
+            setSignInOpen(false);
+            navigate("/");
+          }}
+        />
       )}
+      {pathname === "/settings" && <SettingsDialog onClose={() => navigate("/")} onError={handleError} />}
       <Dialog
         open={!!duplicate}
         onClose={() => setDuplicate(null)}
@@ -685,13 +878,14 @@ export default function PinDropApp() {
         <p className="muted">{duplicate?.description}</p>
         <div className="dialog-actions">
           <button className="secondary" disabled={publishing} onClick={() => publish(true)}>
-            Post a separate pin
+            {publishing ? "Publishing…" : "Post a separate pin"}
           </button>
           <button
             className="primary"
             onClick={() => {
               if (!duplicate) return;
               selectPin(duplicate.id);
+              if (draft?.photoPreview) URL.revokeObjectURL(draft.photoPreview);
               setDraft(null);
               setDuplicate(null);
             }}
@@ -701,9 +895,15 @@ export default function PinDropApp() {
         </div>
       </Dialog>
       {ui.toast && (
-        <div role="status" className="toast">
-          <Check size={16} />
-          {ui.toast}
+        <div
+          role={ui.toast.tone === "error" ? "alert" : "status"}
+          className={"toast " + ui.toast.tone}
+        >
+          {ui.toast.tone === "error" ? <CircleAlert size={16} /> : <Check size={16} />}
+          {ui.toast.message}
+          <button aria-label="Dismiss message" onClick={() => setUi({ toast: null })}>
+            <X size={14} />
+          </button>
         </div>
       )}
     </main>

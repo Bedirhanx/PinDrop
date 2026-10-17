@@ -2788,3 +2788,267 @@ small {
   syntax: "*";
   inherits: false;
 }
+
+/* ---- Community features (accounts, claims, messages) ---------------------- */
+
+.brand-symbol {
+  overflow: hidden;
+}
+.brand-symbol img {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.local-pill.live {
+  color: #83bca2;
+}
+.pulse-dot.warn {
+  background: #f4bc6a;
+}
+.avatar {
+  position: relative;
+  cursor: pointer;
+}
+.avatar.large {
+  width: 52px;
+  height: 52px;
+  font-size: 20px;
+}
+.avatar-badge {
+  color: #fff;
+  background: #f36d82;
+  border: 2px solid var(--panel);
+  border-radius: 10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+}
+.toast.error {
+  background: #b23a50;
+  border-color: #f36d82;
+}
+.toast.info {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.toast > button {
+  color: inherit;
+  opacity: 0.8;
+  background: 0 0;
+  border: 0;
+  margin-left: 4px;
+  padding: 4px;
+  display: grid;
+}
+.status-badge.status-claimed,
+.status-badge.status-active {
+  color: #1b2238;
+  background: #f4bc6a;
+}
+.status-badge.status-cancelled,
+.status-badge.status-archived {
+  opacity: 0.75;
+}
+.verified-badge {
+  color: #69c8bd;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+}
+.claim-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin: 18px 0 4px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.claim-panel > p small {
+  color: var(--muted);
+  font-size: 11px;
+  display: block;
+}
+.conversation h3 {
+  margin: 14px 0 8px;
+  font-size: 13px;
+}
+.message-list {
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  padding: 2px;
+  display: flex;
+  overflow-y: auto;
+}
+.message {
+  background: var(--raised);
+  overflow-wrap: anywhere;
+  border-radius: 14px 14px 14px 4px;
+  align-self: flex-start;
+  max-width: 85%;
+  margin: 0;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+.message.mine {
+  color: #fff;
+  background: var(--accent);
+  border-radius: 14px 14px 4px;
+  align-self: flex-end;
+}
+.dark .message.mine {
+  color: #1b1438;
+}
+.message small {
+  opacity: 0.7;
+  margin-top: 3px;
+  font-size: 10px;
+  display: block;
+}
+.message-form {
+  gap: 8px;
+  margin-top: 10px;
+  display: flex;
+}
+.message-form input {
+  flex: 1;
+  min-width: 0;
+}
+.message-form .primary {
+  flex-shrink: 0;
+  padding: 0 14px;
+}
+.sign-in-form {
+  flex-direction: column;
+  gap: 8px;
+  display: flex;
+}
+.sign-in-form label {
+  font-size: 12px;
+  font-weight: 600;
+}
+.sign-in-sent {
+  text-align: center;
+  color: var(--ink);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  display: flex;
+}
+.sign-in-sent p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.account-summary {
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  display: flex;
+}
+.account-summary > div {
+  flex-direction: column;
+  gap: 3px;
+  display: flex;
+}
+.account-summary small {
+  color: var(--muted);
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  display: flex;
+}
+.account-summary .verified-badge {
+  margin-left: 0;
+}
+.blocked-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.blocked-list li {
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  display: flex;
+}
+.map-message.tiles {
+  top: auto;
+  bottom: 90px;
+}
+
+/* Touch targets and notched phones. */
+@media (max-width: 1023px) {
+  .topbar {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .detail-content,
+  .navigation-content,
+  .feed-scroll {
+    padding-bottom: calc(30px + env(safe-area-inset-bottom));
+  }
+  .map-filters > button,
+  .map-control,
+  .icon-button,
+  .text-button {
+    min-height: 40px;
+  }
+  .dialog-card {
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top));
+    padding-bottom: calc(23px + env(safe-area-inset-bottom));
+  }
+  /* 16px inputs stop iOS Safari zooming the page while typing. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+@media (max-width: 1023px) {
+  /* Keep "Drop a pin" clear of the map controls on short phones. */
+  .drop-fab {
+    left: 16px;
+    right: auto;
+  }
+  .map-controls {
+    gap: 7px;
+  }
+  .compass-control {
+    height: 54px;
+  }
+}
+@media (max-width: 1023px) and (max-height: 760px) {
+  .map-controls {
+    gap: 5px;
+  }
+  .map-control {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+  .compass-control {
+    height: 48px;
+  }
+}
+/* Short touch screens: pinch and double-tap zoom replace the +/- buttons. */
+@media (max-width: 1023px) and (max-height: 760px) and (pointer: coarse) {
+  .zoom-control {
+    display: none;
+  }
+}

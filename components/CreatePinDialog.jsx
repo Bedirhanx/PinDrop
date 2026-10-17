@@ -29,10 +29,23 @@ import {
   URGENCY_LABELS,
 } from "@/lib/constants";
 import { addDays, today } from "@/lib/dates";
-import { groupsForType, preparePhoto, validateDraft } from "@/lib/pins";
+import {
+  APPROXIMATE_CELL_METRES,
+  groupsForType,
+  preparePhoto,
+  PRIVATE_BY_DEFAULT,
+  validateDraft,
+} from "@/lib/pins";
 
 const TYPE_ICONS = [HandHeart, Gift, CalendarDays, MapPinned, TriangleAlert];
 const STEP_ONE_FIELDS = ["title", "category", "description"];
+
+// Sensitive categories (home, care, wellness) start with an approximate
+// location; switching away restores the person's own choice.
+function privacyDefault(groupId, current) {
+  if (PRIVATE_BY_DEFAULT.includes(groupId)) return true;
+  return current.approximateChosen ?? false;
+}
 
 export default function CreatePinDialog({ open, onClose, center, onPlace }) {
   const [step, setStep] = useState(0);
@@ -90,6 +103,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
       ...current,
       type: nextType,
       communityCategory: nextGroup.id,
+      approximate: privacyDefault(nextGroup.id, current),
       category: nextGroup.items.includes(current.category)
         ? current.category
         : nextGroup.items[0],
@@ -194,9 +208,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                       ...current,
                       communityCategory: next.id,
                       category: next.items[0],
-                      // Homes and care default to a fuzzy location for privacy.
-                      approximate:
-                        next.id === "home" || next.id === "care" ? true : current.approximate,
+                      approximate: privacyDefault(next.id, current),
                     }));
                   }}
                 >
@@ -214,7 +226,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                     <option key={item}>{item}</option>
                   ))}
                 </select>
-                <span className="field-error">{errors.category}</span>
+                <span className="field-error" role="alert">{errors.category}</span>
               </label>
             </div>
             <label>
@@ -222,6 +234,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
               <input
                 {...field("title")}
                 maxLength={80}
+                aria-invalid={!!errors.title}
                 autoFocus
                 placeholder={
                   type === "offering"
@@ -231,7 +244,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                       : "Give your pin a useful title"
                 }
               />
-              <span className="field-error">{errors.title}</span>
+              <span className="field-error" role="alert">{errors.title}</span>
             </label>
             <label>
               Description <small>optional</small>
@@ -349,7 +362,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                           )
                         }
                       />
-                      <span className="field-error">{errors.amount}</span>
+                      <span className="field-error" role="alert">{errors.amount}</span>
                     </label>
                     <label>
                       Currency
@@ -373,7 +386,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                           : "e.g. Guitar lessons for cooking lessons"
                       }
                     />
-                    <span className="field-error">{errors.exchangeDetails}</span>
+                    <span className="field-error" role="alert">{errors.exchangeDetails}</span>
                   </label>
                 )}
                 {payment && payment !== "free" && (
@@ -397,7 +410,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                       min={values.startsAt?.slice(0, 10)}
                       onChange={(value) => setField("endsAt", value)}
                     />
-                    <p className="field-error">{errors.endsAt}</p>
+                    <p className="field-error" role="alert">{errors.endsAt}</p>
                   </div>
                 )}
                 <section className="listing-fieldset expiry-field">
@@ -429,7 +442,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                     custom date range stays visible through its last day unless
                     you choose an earlier expiry.
                   </p>
-                  <p className="field-error">{errors.expiresAt}</p>
+                  <p className="field-error" role="alert">{errors.expiresAt}</p>
                 </section>
               </div>
             </details>
@@ -512,13 +525,20 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                   <input
                     type="checkbox"
                     checked={values.approximate}
-                    onChange={(event) => setField("approximate", event.target.checked)}
+                    onChange={(event) =>
+                      setValues((current) => ({
+                        ...current,
+                        approximate: event.target.checked,
+                        approximateChosen: event.target.checked,
+                      }))
+                    }
                   />
                   <span>
                     Show an approximate location
                     <small>
-                      Only a point on an approximately 50 m grid is stored and
-                      shared. Keep exact addresses out of your description.
+                      Your exact spot never leaves this device: neighbors see a
+                      random point within about {APPROXIMATE_CELL_METRES} m. Keep
+                      addresses out of your description.
                     </small>
                   </span>
                 </label>
@@ -531,7 +551,7 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                 <span>
                   <strong>Add a photo</strong>
                   <small>
-                    {values.photoUrl ? "1 photo added" : "Help neighbors see what you mean"}
+                    {values.photo ? "1 photo added" : "Help neighbors see what you mean"}
                   </small>
                 </span>
                 <ChevronDown size={17} />
@@ -540,20 +560,23 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                 <label className="photo-picker">
                   <ImagePlus size={20} />
                   <span>
-                    {values.photoUrl ? "Photo added · metadata removed" : "Add a photo"}
-                    <small>Optional · GPS metadata removed automatically</small>
+                    {values.photo ? "Photo added · metadata removed" : "Add a photo"}
+                    <small>Optional · JPEG, PNG, WebP or HEIC · location data removed</small>
                   </span>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                     disabled={photoBusy}
                     onChange={async (event) => {
                       const file = event.target.files?.[0];
+                      event.target.value = "";
                       if (!file) return;
                       setPhotoBusy(true);
                       setPhotoError("");
                       try {
-                        setField("photoUrl", await preparePhoto(file));
+                        const { blob, previewUrl } = await preparePhoto(file);
+                        if (values.photoPreview) URL.revokeObjectURL(values.photoPreview);
+                        setValues((current) => ({ ...current, photo: blob, photoPreview: previewUrl }));
                       } catch (error) {
                         setPhotoError(error.message);
                       } finally {
@@ -562,20 +585,25 @@ export default function CreatePinDialog({ open, onClose, center, onPlace }) {
                     }}
                   />
                 </label>
-                {values.photoUrl && (
+                {values.photoPreview && (
                   <div className="photo-preview">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={values.photoUrl} alt="Pin preview" />
+                    <img src={values.photoPreview} alt="Selected photo preview" />
                     <button
                       type="button"
                       className="text-button"
-                      onClick={() => setField("photoUrl", undefined)}
+                      onClick={() => {
+                        URL.revokeObjectURL(values.photoPreview);
+                        setValues((current) => ({ ...current, photo: undefined, photoPreview: undefined }));
+                      }}
                     >
                       Remove photo
                     </button>
                   </div>
                 )}
-                <p className="field-error">{photoError}</p>
+                <p className="field-error" role="alert">
+                  {photoError}
+                </p>
               </div>
             </details>
           </div>

@@ -9,12 +9,13 @@ import {
   formatDistance,
   isPlace,
   isRequest,
+  STATUS_LABELS,
   tagStyle,
   typeLabel,
 } from "@/lib/pins";
 import { useUi } from "@/lib/store";
 
-export default function PinFeed({ pins, center, onSelect }) {
+export default function PinFeed({ pins, center, onSelect, emptyHint }) {
   const zoom = useUi((s) => s.zoom);
 
   if (!pins.length) {
@@ -24,12 +25,13 @@ export default function PinFeed({ pins, center, onSelect }) {
         <div className="empty">
           <MapPin size={30} />
           <h3>
-            {zoomedOut ? "Zoom in to discover listings" : "A little quiet here."}
+            {emptyHint ? "Nothing here yet." : zoomedOut ? "Zoom in to discover listings" : "A little quiet here."}
           </h3>
           <p>
-            {zoomedOut
+            {emptyHint ||
+              (zoomedOut
               ? "Choose a Bay Area neighborhood above or zoom closer. Listings load only for the area you’re viewing."
-              : "Try another filter, or drop the first pin in this area."}
+              : "Try another filter, or drop the first pin in this area.")}
           </p>
         </div>
       </div>
@@ -39,7 +41,9 @@ export default function PinFeed({ pins, center, onSelect }) {
   return (
     <div className="feed-scroll">
       {pins.map((pin) => {
-        const done = effectiveStatus(pin) === "done";
+        const status = effectiveStatus(pin);
+        const done = status === "done";
+        const author = pin.authorName || "Neighbor";
         return (
           <button key={pin.id} className="feed-card" onClick={() => onSelect(pin.id)}>
             <div className="card-meta">
@@ -61,6 +65,9 @@ export default function PinFeed({ pins, center, onSelect }) {
             <div className="listing-meta">
               <span>{typeLabel(pin.type)}</span>
               {pin.sample && <span className="sample-label">Sample pin</span>}
+              {(status === "claimed" || status === "active" || status === "cancelled" || status === "archived") && (
+                <span>{STATUS_LABELS[status]}</span>
+              )}
               {pin.payment && <span>{PAYMENT_LABELS[pin.payment]}</span>}
               {pin.urgency && pin.urgency !== "flexible" && (
                 <span className="urgent">{URGENCY_LABELS[pin.urgency]}</span>
@@ -69,11 +76,11 @@ export default function PinFeed({ pins, center, onSelect }) {
             <p>{pin.description}</p>
             <div className="card-foot">
               <span>
-                <i>{pin.authorName[0]}</i>
-                {pin.authorName}
+                <i aria-hidden="true">{author[0].toUpperCase()}</i>
+                {author}
               </span>
               <span className="card-action">
-                {isRequest(pin.type) && pin.status === "open"
+                {isRequest(pin.type) && status === "open"
                   ? "Lend a hand"
                   : isPlace(pin.type)
                     ? "Explore spot"

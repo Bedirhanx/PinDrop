@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { getVersion, setWorkerUrl } from "maplibre-gl";
 import Map, { Layer, Marker, Source } from "react-map-gl/maplibre";
 import { Layers, MapPin, Navigation } from "lucide-react";
 import CategoryIcon from "./CategoryIcon";
@@ -10,20 +11,33 @@ import { CAMPUS, CATEGORY_COLORS, COMMUNITY_CATEGORIES } from "@/lib/constants";
 import { pinColor, pinIconKey } from "@/lib/pins";
 import { useUi } from "@/lib/store";
 
+// MapLibre can't find its worker inside the Next.js bundle; it is copied to
+// public/vendor by scripts/copy-maplibre-worker.mjs.
+setWorkerUrl(`/vendor/maplibre-gl-worker.mjs?v=${getVersion()}`);
+
 const reducedMotion = () =>
   matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Raster tiles. OpenStreetMap's own servers are fine for light use under
+// their tile policy; set NEXT_PUBLIC_MAP_TILE_URL to a commercial or
+// self-hosted provider for heavier traffic.
+const TILE_URL =
+  process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const TILE_ATTRIBUTION =
+  process.env.NEXT_PUBLIC_MAP_TILE_ATTRIBUTION ||
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>';
 
 function mapStyle(dark) {
   return {
     version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    // Self-hosted glyphs for cluster numbers (public/fonts).
+    glyphs: `${window.location.origin}/fonts/{fontstack}/{range}.pbf`,
     sources: {
       tiles: {
         type: "raster",
-        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tiles: [TILE_URL],
         tileSize: 256,
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+        attribution: TILE_ATTRIBUTION,
         maxzoom: 19,
       },
     },
@@ -153,6 +167,8 @@ export default function MapView({
   const setUi = useUi((s) => s.set);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [tilesFailing, setTilesFailing] = useState(false);
+  const tileErrors = useRef(0);
   const firstHome = useRef(true);
   const style = useMemo(() => mapStyle(theme === "dark"), [theme]);
 
@@ -270,19 +286,24 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomRequest?.key, loaded]);
 
-  const features = {
-    type: "FeatureCollection",
-    features: pins.map((pin) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [pin.lng, pin.lat] },
-      properties: {
-        id: pin.id,
-        color: pinColor(pin),
-        icon: pinIconKey(pin),
-        selected: pin.id === selected?.id,
-      },
-    })),
-  };
+  // Rebuilt only when the pins or selection change, not on every render.
+  const selectedId = selected?.id;
+  const features = useMemo(
+    () => ({
+      type: "FeatureCollection",
+      features: pins.map((pin) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [pin.lng, pin.lat] },
+        properties: {
+          id: pin.id,
+          color: pinColor(pin),
+          icon: pinIconKey(pin),
+          selected: pin.id === selectedId,
+        },
+      })),
+    }),
+    [pins, selectedId],
+  );
 
   async function onClick(event) {
     if (draft) {
@@ -314,7 +335,22 @@ export default function MapView({
         style={{ width: "100%", height: "100%" }}
         interactiveLayerIds={["pin-icons", "pin-points", "clusters"]}
         onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
+        onError={(event) => {
+          // Tile failures are reported here too; a few are normal when panning
+          // quickly, many in a row mean the tile server is unreachable.
+          if (event.error?.status || /tile|Failed to fetch|NetworkError/i.test(event.error?.message || "")) {
+            tileErrors.current += 1;
+            if (tileErrors.current >= 6) setTilesFailing(true);
+            return;
+          }
+          if (!loaded) setFailed(true);
+        }}
+        onData={(event) => {
+          if (event.dataType === "source" && event.tile && tileErrors.current) {
+            tileErrors.current = 0;
+            setTilesFailing(false);
+          }
+        }}
         onMoveStart={(event) => {
           if (event.originalEvent) onManualMove();
         }}
@@ -361,7 +397,7 @@ export default function MapView({
             layout={{
               "text-field": ["get", "point_count_abbreviated"],
               "text-size": 12,
-              "text-font": ["Open Sans Regular"],
+              "text-font": ["Noto Sans Bold"],
             }}
             paint={{ "text-color": "#fff" }}
           />
@@ -449,8 +485,13 @@ export default function MapView({
       </Map>
       <MapLegend />
       {failed && !loaded && (
-        <div className="map-message">
-          The map could not load. Your saved pins are available in the list.
+        <div className="map-message" role="alert">
+          The map could not load. Pins are still available in the list.
+        </div>
+      )}
+      {tilesFailing && loaded && (
+        <div className="map-message tiles" role="status">
+          Street map tiles aren’t loading (you may be offline). Pins are still shown.
         </div>
       )}
       {!loaded && (

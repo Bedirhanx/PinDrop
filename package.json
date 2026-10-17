@@ -4,14 +4,23 @@
   "private": true,
   "description": "PinDrop: a neighborhood map for small acts of help.",
   "scripts": {
+    "predev": "node scripts/copy-maplibre-worker.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "db:migrate": "node scripts/migrate.mjs",
+    "check": "npm run lint && npm run test && npm run build"
   },
   "engines": {
     "node": ">=20.9.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "idb-keyval": "^6.3.0",
     "lucide-react": "^1.59.0",
     "maplibre-gl": "^6.14.0",
@@ -19,6 +28,16 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-map-gl": "^8.1.3",
+    "server-only": "^0.0.1",
     "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@playwright/test": "^1.64.1",
+    "eslint": "^10.13.0",
+    "eslint-config-next": "^16.4.2",
+    "fake-indexeddb": "^6.2.6",
+    "jsdom": "^30.1.3",
+    "vitest": "^5.0.5"
   }
 }
