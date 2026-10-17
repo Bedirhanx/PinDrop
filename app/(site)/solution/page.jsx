@@ -16,6 +16,7 @@ import {
   UserX,
   WifiOff,
 } from "lucide-react";
+import AskHelper from "@/components/AskHelper";
 import Reveal from "@/components/Reveal";
 
 export const metadata = {
@@ -185,6 +186,12 @@ export default function Solution() {
             </Reveal>
           ))}
         </div>
+      </section>
+
+      <section className="site-section narrow">
+        <Reveal>
+          <AskHelper />
+        </Reveal>
       </section>
 
       <Reveal as="section" className="site-cta">

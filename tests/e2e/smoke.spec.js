@@ -165,3 +165,23 @@ test("phone forms don't trigger iPhone zoom and the pages scroll", async ({ page
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   }
 });
+
+test("the question box offers the helper when it's set up, otherwise Contact", async ({ page }) => {
+  await page.goto("/solution");
+  const box = page.locator(".ask-helper");
+  await box.scrollIntoViewIfNeeded();
+  const available = await page.request.get("/api/chat").then((r) => r.json()).then((d) => d.available);
+  if (!available) {
+    await expect(box.getByRole("link", { name: "Contact us" })).toHaveAttribute("href", "/contact");
+  }
+
+  // With the helper switched on, the button opens the chat panel.
+  await page.route("**/api/chat", (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: { available: true } }) : route.continue(),
+  );
+  await page.reload();
+  await page.locator(".ask-helper").scrollIntoViewIfNeeded();
+  await page.locator(".ask-helper").getByRole("button", { name: "Ask the helper" }).click();
+  await expect(page.getByRole("dialog", { name: "PinDrop helper" })).toBeVisible();
+  await expect(page.locator("#chat-input")).toBeFocused();
+});
