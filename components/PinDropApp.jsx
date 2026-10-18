@@ -55,6 +55,7 @@ import {
   rankScore,
 } from "@/lib/pins";
 import { sampleById, samplesInArea } from "@/lib/samples";
+import { clearDraft, DRAFT_EVENT, peekDraft } from "@/lib/ai-draft";
 import { saveRecovery, usePins, useUi } from "@/lib/store";
 
 const FILTERS = [
@@ -155,6 +156,8 @@ export default function PinDropApp() {
 
   const [now, setNow] = useState(() => Date.now());
   const [creating, setCreating] = useState(false);
+  // A pin drafted by PinDrop AI, opened in the "Drop a pin" form for review.
+  const [aiDraft, setAiDraft] = useState(null);
   const [draft, setDraft] = useState(null);
   const [homeKey, setHomeKey] = useState(0);
   const [follow, setFollow] = useState(false);
@@ -418,6 +421,32 @@ export default function PinDropApp() {
     }
   }
 
+  // Picks up a draft from PinDrop AI (sent from this page or another one).
+  useEffect(() => {
+    if (!data.authReady) return;
+    const take = () => {
+      const draft = peekDraft();
+      if (!draft) return;
+      if (!data.backend) {
+        clearDraft();
+        notify("Posting pins needs PinDrop’s community server, which isn’t configured yet.", "error");
+        return;
+      }
+      if (!userId) {
+        // Keep the draft; it opens once they're signed in.
+        handleError({ signIn: true, message: "Sign in to post the pin PinDrop AI drafted for you." });
+        return;
+      }
+      clearDraft();
+      setDraft(null);
+      setAiDraft(draft);
+      setCreating(true);
+    };
+    take();
+    window.addEventListener(DRAFT_EVENT, take);
+    return () => window.removeEventListener(DRAFT_EVENT, take);
+  }, [data.authReady, data.backend, userId, notify, handleError]);
+
   function startCreating() {
     stopNavigation();
     if (!data.backend) {
@@ -428,6 +457,7 @@ export default function PinDropApp() {
       handleError({ signIn: true, message: "Sign in to drop a pin. It only takes an email." });
       return;
     }
+    setAiDraft(null);
     setCreating(true);
   }
 
@@ -987,7 +1017,11 @@ export default function PinDropApp() {
       {creating && (
         <CreatePinDialog
           open
-          onClose={() => setCreating(false)}
+          initial={aiDraft}
+          onClose={() => {
+            setCreating(false);
+            setAiDraft(null);
+          }}
           center={ui.center}
           onPlace={(values) => {
             setDraft(values);

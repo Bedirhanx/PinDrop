@@ -4208,3 +4208,188 @@ small {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ---- PinDrop AI ----------------------------------------------------------- */
+
+/* A big, friendly launcher with the PinDrop logo. */
+.chat-launcher {
+  color: #fff;
+  background: linear-gradient(135deg, #8154e5, #5f7cf0);
+  border: 2px solid #ffffff33;
+  border-radius: 999px;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  height: 60px;
+  padding: 0 22px 0 10px;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  box-shadow: 0 12px 32px #8154e566, 0 0 0 6px #8154e51f;
+  animation:
+    0.5s 0.6s both pop-in,
+    3s 1.5s ease-in-out infinite launcher-glow;
+}
+.chat-launcher img {
+  border-radius: 12px;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 2px 8px #0003;
+}
+.chat-launcher-label {
+  white-space: nowrap;
+  align-items: center;
+  gap: 6px;
+  display: inline-flex;
+}
+.chat-launcher[aria-expanded="true"] {
+  justify-content: center;
+  width: 60px;
+  padding: 0;
+}
+.chat-launcher:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+@keyframes launcher-glow {
+  50% {
+    box-shadow: 0 12px 32px #8154e588, 0 0 0 10px #8154e512;
+  }
+}
+@media (max-width: 600px) {
+  .chat-launcher {
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    padding: 0;
+  }
+  .chat-launcher img {
+    width: 44px;
+    height: 44px;
+  }
+  .chat-launcher-label {
+    display: none;
+  }
+}
+/* In the map's top bar: a compact labelled button. */
+.chat-widget.in-app .chat-launcher {
+  color: #fff;
+  background: linear-gradient(135deg, #8154e5, #5f7cf0);
+  box-shadow: none;
+  border: 0;
+  border-radius: 12px;
+  gap: 7px;
+  width: auto;
+  height: 38px;
+  padding: 0 12px 0 4px;
+  font-size: 12px;
+  animation: none;
+}
+.chat-widget.in-app .chat-launcher img {
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+}
+.chat-widget.in-app .chat-launcher[aria-expanded="true"] {
+  width: 38px;
+  padding: 0;
+}
+.chat-widget.in-app .chat-launcher-label svg {
+  display: none;
+}
+@media (max-width: 600px) {
+  .chat-widget.in-app .chat-launcher {
+    width: 38px;
+    padding: 0;
+  }
+}
+.chat-panel {
+  bottom: calc(100px + env(safe-area-inset-bottom));
+}
+.chat-panel header strong {
+  align-items: center;
+  gap: 6px;
+  display: inline-flex;
+}
+.chat-panel header strong svg {
+  color: var(--accent);
+}
+.chat-panel header {
+  grid-template-columns: 1fr auto auto;
+  gap: 0 6px;
+}
+.chat-panel header .chat-new {
+  grid-row: 1 / 3;
+  grid-column: 2;
+}
+.chat-panel header .icon-button:last-child {
+  grid-column: 3;
+}
+.chat-turn {
+  flex-direction: column;
+  gap: 8px;
+  display: flex;
+}
+.chat-turn.user {
+  align-items: flex-end;
+}
+.chat-pins {
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+}
+.chat-pins a {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 12px;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  text-decoration: none;
+  transition: border-color 0.2s;
+  display: flex;
+}
+.chat-pins a:hover {
+  border-color: var(--accent);
+}
+.chat-pins a > svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.chat-pins strong {
+  font-size: 13px;
+  display: block;
+}
+.chat-pins small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.chat-draft {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 14px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  display: flex;
+}
+.chat-draft small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.chat-draft strong {
+  font-size: 14px;
+}
+.chat-draft p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.chat-draft .primary {
+  align-self: flex-start;
+  margin-top: 4px;
+}

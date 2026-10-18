@@ -47,22 +47,28 @@ function privacyDefault(groupId, current) {
   return current.approximateChosen ?? false;
 }
 
-export default function CreatePinDialog({ open, onClose, center, onPlace }) {
+// `initial` pre-fills the form, e.g. with a pin drafted by PinDrop AI.
+export default function CreatePinDialog({ open, onClose, center, onPlace, initial }) {
   const [step, setStep] = useState(0);
-  const [values, setValues] = useState(() => ({
-    type: "requesting",
-    communityCategory: "everyday",
-    category: COMMUNITY_CATEGORIES[0].items[0],
-    title: "",
-    description: "",
-    placeLabel: "",
-    payment: "free",
-    currency: "USD",
-    urgency: "flexible",
-    approximate: false,
-    skills: [],
-    contactTags: [],
-  }));
+  const [values, setValues] = useState(() => {
+    const start = {
+      type: "requesting",
+      communityCategory: "everyday",
+      category: COMMUNITY_CATEGORIES[0].items[0],
+      title: "",
+      description: "",
+      placeLabel: "",
+      payment: "free",
+      currency: "USD",
+      urgency: "flexible",
+      approximate: false,
+      skills: [],
+      contactTags: [],
+    };
+    if (!initial) return start;
+    const merged = { ...start, ...initial };
+    return { ...merged, approximate: privacyDefault(merged.communityCategory, merged) };
+  });
   const [errors, setErrors] = useState({});
   const [customDates, setCustomDates] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
