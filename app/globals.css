@@ -4186,3 +4186,25 @@ small {
     justify-items: center;
   }
 }
+.team-role {
+  color: var(--accent);
+  background: var(--accent-soft);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-radius: 999px;
+  margin-top: -4px;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+/* Six people: a balanced 3 × 2 grid on wide screens, 2 per row on phones. */
+.team {
+  grid-template-columns: repeat(3, minmax(0, 230px));
+  justify-content: center;
+  display: grid;
+}
+@media (max-width: 760px) {
+  .team {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
