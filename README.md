@@ -58,8 +58,10 @@ preview mode (sample pins only; creating pins and accounts are disabled).
 - **Moderators:** set `is_moderator = true` on a profile (SQL editor). Moderators
   can read reports and contact messages; pins reported by three people are hidden
   until a moderator clears `hidden_at`.
-- **Helper chatbot:** set `ANTHROPIC_API_KEY` (server-side only). Without it the
-  chat button doesn't appear.
+- **Helper chatbot:** set `GEMINI_API_KEY` (free from Google AI Studio) or
+  `ANTHROPIC_API_KEY`, server-side only. Gemini is used when both are set; it
+  defaults to Flash-Lite and retries once on Flash if Google is busy. Without
+  a key the chat button doesn't appear.
 - **Map tiles and routing:** the defaults are free OpenStreetMap community servers
   ([tile policy](https://operations.osmfoundation.org/policies/tiles/)), fine for
   light use. For real traffic, point `NEXT_PUBLIC_MAP_TILE_URL` and the

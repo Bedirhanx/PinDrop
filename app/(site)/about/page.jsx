@@ -27,6 +27,7 @@ const STEPS = [
 
 // The people building PinDrop.
 const TEAM = [
+  { name: "Ilgiz Satkynov", role: "Mentor", photo: "/team/ilgiz-satkynov.webp", linkedin: "https://www.linkedin.com/in/ilgizsatkynov" },
   { name: "Bedirhan Erdemli", photo: "/team/bedirhan-erdemli.webp", linkedin: "https://www.linkedin.com/in/bedirhan-yusuf-erdemli" },
   { name: "Shafagh Mehrabi", photo: "/team/shafagh-mehrabi.webp", linkedin: "https://www.linkedin.com/in/shafagh-mehrabi" },
   { name: "Yixin Lin", photo: "/team/yixin-lin.webp", linkedin: "https://www.linkedin.com/in/yixin-lin-1680yx" },
@@ -185,7 +186,8 @@ export default function About() {
       <section className="site-section" id="team">
         <Reveal as="h2">Meet the team</Reveal>
         <Reveal as="p" delay={60} className="hero-lead team-lead">
-          De Anza students building the neighborhood map we wanted to use.
+          De Anza students building the neighborhood map we wanted to use, with guidance from
+          our mentor.
         </Reveal>
         <ul className="team">
           {TEAM.map((person, index) => (
@@ -193,6 +195,7 @@ export default function About() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={person.photo} alt={person.name} width={160} height={160} loading="lazy" />
               <strong>{person.name}</strong>
+              {person.role && <span className="team-role">{person.role}</span>}
               {person.linkedin && (
                 <a
                   href={person.linkedin}

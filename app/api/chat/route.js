@@ -1,9 +1,23 @@
-// The PinDrop helper chatbot. Streams Claude's reply as plain text.
-// It only sees the conversation the visitor types; it has no access to the
-// database or anyone's account.
+// The PinDrop helper chatbot. Streams the reply as plain text, from Google
+// Gemini when GEMINI_API_KEY is set, otherwise from Claude when
+// ANTHROPIC_API_KEY is set. It only sees the conversation the visitor types;
+// it has no access to the database or anyone's account.
 import Anthropic from "@anthropic-ai/sdk";
+import { ApiError, GoogleGenAI } from "@google/genai";
 
+// Flash-Lite answers in under a second; if it's overloaded, try Flash once.
+const GEMINI_MODELS = [
+  ...new Set([process.env.GEMINI_MODEL || "gemini-flash-lite-latest", "gemini-flash-latest"]),
+];
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
+// Short answers keep the helper quick and its cost bounded.
+const MAX_OUTPUT_TOKENS = 1024;
+
+function provider() {
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.ANTHROPIC_API_KEY) return "anthropic";
+  return null;
+}
 const MAX_TURNS = 20;
 const MAX_CHARS = 2000;
 
@@ -54,12 +68,99 @@ function cleanMessages(input) {
 
 const json = (body, status) => Response.json(body, { status });
 
+// Yields the reply text from Gemini.
+async function* geminiReply(messages, signal) {
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const contents = messages.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+  for (const [index, model] of GEMINI_MODELS.entries()) {
+    let started = false;
+    let finish;
+    try {
+      const stream = await ai.models.generateContentStream({
+        model,
+        contents,
+        config: {
+          systemInstruction: SYSTEM,
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          abortSignal: signal,
+        },
+      });
+      for await (const chunk of stream) {
+        if (chunk.text) {
+          started = true;
+          yield chunk.text;
+        }
+        finish = chunk.candidates?.[0]?.finishReason || finish;
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      const busy = error instanceof ApiError && [429, 500, 503].includes(error.status);
+      // Busy before any text was sent: quietly try the next model.
+      if (busy && !started && index < GEMINI_MODELS.length - 1) continue;
+      console.error("chat error (gemini)", model, error?.status, error?.message);
+      yield `${started ? "\n\n" : ""}${
+        busy
+          ? "The assistant is busy right now. Please try again shortly."
+          : error instanceof ApiError && (error.status === 400 || error.status === 403)
+            ? "The assistant isn’t configured correctly."
+            : "The assistant couldn’t answer just now. Please try again."
+      }`;
+      return;
+    }
+    if (finish === "SAFETY" || finish === "PROHIBITED_CONTENT") yield "Sorry, I can’t help with that one.";
+    else if (finish === "MAX_TOKENS") yield "…";
+    return;
+  }
+}
+
+// Yields the reply text from Claude.
+async function* claudeReply(messages, signal) {
+  const client = new Anthropic();
+  const stream = client.beta.messages.stream(
+    {
+      model: MODEL,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      output_config: { effort: "low" },
+      // If the model declines on safety grounds, the API retries on its
+      // recommended fallback model instead of returning a refusal.
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      system: SYSTEM,
+      messages,
+    },
+    { signal },
+  );
+  try {
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yield event.delta.text;
+      }
+    }
+    const final = await stream.finalMessage();
+    if (final.stop_reason === "refusal") yield "Sorry, I can’t help with that one.";
+    else if (final.stop_reason === "max_tokens") yield "…";
+  } catch (error) {
+    if (signal.aborted) return;
+    console.error("chat error (claude)", error?.status, error?.message);
+    yield `\n\n${
+      error instanceof Anthropic.RateLimitError
+        ? "The assistant is busy right now. Please try again shortly."
+        : error instanceof Anthropic.AuthenticationError
+          ? "The assistant isn’t configured correctly."
+          : "The assistant couldn’t answer just now. Please try again."
+    }`;
+  }
+}
+
 export function GET() {
-  return json({ available: Boolean(process.env.ANTHROPIC_API_KEY) }, 200);
+  return json({ available: Boolean(provider()) }, 200);
 }
 
 export async function POST(request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!provider()) {
     return json({ error: "The assistant isn’t set up on this site yet." }, 503);
   }
   // Only PinDrop's own pages may use this endpoint.
@@ -80,50 +181,17 @@ export async function POST(request) {
   const messages = cleanMessages(body?.messages);
   if (!messages) return json({ error: "Invalid conversation." }, 400);
 
-  const client = new Anthropic();
-  const stream = client.beta.messages.stream({
-    model: MODEL,
-    // Short answers keep the helper quick and its cost bounded.
-    max_tokens: 1024,
-    output_config: { effort: "low" },
-    // If the model declines on safety grounds, the API retries on its
-    // recommended fallback model instead of returning a refusal.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    system: SYSTEM,
-    messages,
-  });
-
+  const abort = new AbortController();
+  const reply = provider() === "gemini" ? geminiReply(messages, abort.signal) : claudeReply(messages, abort.signal);
   const encoder = new TextEncoder();
   const body$ = new ReadableStream({
     async start(controller) {
-      try {
-        for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            controller.enqueue(encoder.encode(event.delta.text));
-          }
-        }
-        const final = await stream.finalMessage();
-        if (final.stop_reason === "refusal") {
-          controller.enqueue(encoder.encode("Sorry, I can’t help with that one."));
-        } else if (final.stop_reason === "max_tokens") {
-          controller.enqueue(encoder.encode("…"));
-        }
-      } catch (error) {
-        const message =
-          error instanceof Anthropic.RateLimitError
-            ? "The assistant is busy right now. Please try again shortly."
-            : error instanceof Anthropic.AuthenticationError
-              ? "The assistant isn’t configured correctly."
-              : "The assistant couldn’t answer just now. Please try again.";
-        console.error("chat error", error?.status, error?.message);
-        controller.enqueue(encoder.encode(`\n\n${message}`));
-      } finally {
-        controller.close();
-      }
+      for await (const text of reply) controller.enqueue(encoder.encode(text));
+      controller.close();
     },
+    // The visitor closed the chat or left the page.
     cancel() {
-      stream.abort();
+      abort.abort();
     },
   });
 
