@@ -181,7 +181,44 @@ test("the question box offers the helper when it's set up, otherwise Contact", a
   );
   await page.reload();
   await page.locator(".ask-helper").scrollIntoViewIfNeeded();
-  await page.locator(".ask-helper").getByRole("button", { name: "Ask the helper" }).click();
-  await expect(page.getByRole("dialog", { name: "PinDrop helper" })).toBeVisible();
+  await page.locator(".ask-helper").getByRole("button", { name: "Ask PinDrop AI" }).click();
+  await expect(page.getByRole("dialog", { name: "PinDrop AI" })).toBeVisible();
   await expect(page.locator("#chat-input")).toBeFocused();
+});
+
+test("PinDrop AI shows found pins and drafts, and Review & post keeps the draft for sign-in", async ({ page }) => {
+  // A scripted reply, so the test never calls the AI provider.
+  await page.route("**/api/chat", (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { available: true, tools: true } });
+    const events = [
+      { type: "text", text: "Here’s what I found, and a **draft** for you." },
+      {
+        type: "pins",
+        pins: [{ id: "sample-campus-0", title: "A little cleanup, a big difference", type: "Requesting", category: "Litter", sample: true }],
+      },
+      {
+        type: "draft",
+        draft: { type: "requesting", communityCategory: "home", category: "Moving / lifting help", title: "Help moving a desk", description: "Saturday morning", urgency: "week", payment: "free" },
+      },
+    ];
+    return route.fulfill({
+      contentType: "application/x-ndjson",
+      body: events.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    });
+  });
+  await page.goto("/solution");
+  await page.locator(".chat-launcher").click();
+  await page.locator("#chat-input").fill("Find cleanups and help me post a desk move");
+  await page.getByRole("button", { name: "Send" }).click();
+  const turn = page.locator(".chat-turn.assistant").last();
+  await expect(turn.locator("strong").first()).toHaveText("draft");
+  await expect(turn.locator(".chat-pins a")).toHaveAttribute("href", "/p/sample-campus-0");
+  await expect(turn.locator(".chat-pins")).toContainText("fictional sample");
+  await expect(turn.locator(".chat-draft")).toContainText("Help moving a desk");
+
+  // Signed out: Review & post goes to the map and asks to sign in.
+  await turn.getByRole("button", { name: /Review/ }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByText("Sign in to post the pin PinDrop AI drafted for you.")).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("pindrop-ai-draft"))).toContain("Help moving a desk");
 });
